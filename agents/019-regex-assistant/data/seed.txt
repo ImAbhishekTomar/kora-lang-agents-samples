@@ -1,0 +1,1 @@
+Match ISO 8601 calendar dates like 2026-09-16, and reject 2026-9-16 and 20260916.

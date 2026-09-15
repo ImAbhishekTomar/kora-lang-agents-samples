@@ -1,0 +1,1 @@
+At 09:12 checkout latency rose to 4s. The payment provider returned 502 on about 3% of calls. We rolled back a pricing config at 09:40 and latency partly recovered. No customer data was exposed.

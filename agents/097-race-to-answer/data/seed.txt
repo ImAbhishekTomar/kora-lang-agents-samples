@@ -1,0 +1,1 @@
+A train leaves at 09:00 averaging 80 km/h. A second leaves the same station at 10:30 averaging 110 km/h on the same route. When does the second catch the first?

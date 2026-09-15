@@ -10,3 +10,4 @@ agents/099-durable-approval-pipeline/output/*
 !agents/099-durable-approval-pipeline/output/.gitkeep
 agents/*/cassettes/
 *.db
+logs/
