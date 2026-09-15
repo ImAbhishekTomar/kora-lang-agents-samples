@@ -1,5 +1,7 @@
 # 100 real Kora agents
 
+[Kora Official Documentation](https://kora-lang.vercel.app/)
+
 This repository contains 100 runnable LLM agents written in Kora, plus the
 original invoice vision sample. The numbered suite is designed to exercise the
 language as a product: typed model results, tools, agent delegation, parallel
@@ -14,6 +16,7 @@ Every numbered agent lives in its own folder under `agents/` with:
 
 See [CATALOG.md](CATALOG.md) for all titles, jobs, and data sources, and
 [FEATURE_MATRIX.md](FEATURE_MATRIX.md) for proof of language coverage.
+[LIVE_RUN_REPORT.md](LIVE_RUN_REPORT.md) records the full real-model verification.
 
 ## Model
 
