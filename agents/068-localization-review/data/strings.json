@@ -1,0 +1,2 @@
+{"locale":"fr-FR","strings":[{"key":"welcome","source":"Welcome, {name}!","target":"Bienvenue, {name}!"},{"key":"items","source":"You have {count} items","target":"Vous avez des articles"},{"key":"upgrade","source":"Upgrade now","target":"Passez à la version supérieure maintenant"}]}
+

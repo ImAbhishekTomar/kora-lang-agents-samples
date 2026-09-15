@@ -1,0 +1,4 @@
+2026-09-15T09:00:01Z INFO version=v2.4.0 boot complete
+2026-09-15T09:00:04Z ERROR database column account_tier does not exist
+2026-09-15T09:00:05Z ERROR request_id=r-102 route=/accounts status=500
+

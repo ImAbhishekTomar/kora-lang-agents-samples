@@ -1,0 +1,42 @@
+use fs
+
+type TestCase:
+    kind: str
+    name: str
+    input: str
+    expected: str
+
+type TestSuite:
+    cases: list[TestCase]
+    assumptions: list[str]
+
+tool allowed_status(code: int) -> bool:
+    "Return whether the API status is a standard documented response."
+    return code in [200, 201, 400, 401, 403, 404, 409, 422, 429, 500]
+
+agent design_tests(spec: str) -> str:
+    budget: max_tokens = 4400, max_calls = 4, max_steps = 4
+    result: TestSuite = analyze(spec, "Design happy, edge, failure, and abuse test cases. Use the status tool to validate expected HTTP codes.", model="gpt", tools=[allowed_status])
+    match result:
+        case Ok(suite):
+            return f"CASES {suite.cases}\nASSUMPTIONS {suite.assumptions}"
+        case Uncertain(reason):
+            return f"TEST DESIGN UNCERTAIN: {reason}"
+        case Exhausted(meter):
+            return f"TEST DESIGN EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"TEST DESIGN FAILED: {why}"
+
+def main():
+    match fs.read("agents/015-test-designer/data/api_spec.md"):
+        case Ok(spec):
+            print(design_tests(spec))
+        case Err(why):
+            print(f"Could not read API spec: {why}")
+
+test "suite covers an abuse case":
+    cases = [TestCase("abuse", "oversized name", "name is 1MB", "422")]
+    with mock analyze -> Ok(TestSuite(cases, ["authentication is already valid"])):
+        answer = design_tests("POST /widgets")
+        assert "oversized name" in answer
+        assert allowed_status(422)

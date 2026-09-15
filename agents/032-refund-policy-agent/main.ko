@@ -1,0 +1,51 @@
+use fs
+
+type RefundAnswer:
+    answer: str
+    policy_basis: str
+    escalate: bool
+    ambiguity: str
+
+tool policy_lookup(topic: str) -> str:
+    "Return the relevant synthetic refund-policy clause."
+    if "annual" in topic:
+        return "Annual plans: refund within 14 days when usage is below 10%."
+    if "duplicate" in topic:
+        return "Duplicate charges: refund the duplicate after payment verification."
+    return "No exact clause found."
+
+agent answer_refund(data: dict) -> str:
+    budget: max_tokens = 3500, max_calls = 3, max_steps = 5
+    with context(max_input_tokens = 7000, reserve_output_tokens = 1000):
+        result: RefundAnswer = analyze(data, "Answer only from the supplied refund policy. Use the lookup tool. Mark escalate when facts or policy are ambiguous.", model="gpt", tools=[policy_lookup])
+    match result:
+        case Ok(answer) if answer.escalate:
+            decision = ask_human(f"Approve escalation? {answer.ambiguity}", answer.policy_basis)
+            return f"ESCALATE ({decision}) | {answer.answer} | {answer.policy_basis}"
+        case Ok(answer):
+            return f"ANSWER {answer.answer} | BASIS {answer.policy_basis}"
+        case Uncertain(reason):
+            decision = ask_human("Policy answer is uncertain. Escalate?", reason)
+            return f"UNCERTAIN ({decision}): {reason}"
+        case Exhausted(meter):
+            return f"REFUND ANSWER EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"REFUND ANSWER FAILED: {why}"
+
+def main():
+    match fs.read("agents/032-refund-policy-agent/data/policy.md"):
+        case Ok(policy):
+            match fs.read("agents/032-refund-policy-agent/data/request.txt"):
+                case Ok(request):
+                    print(answer_refund({"policy": policy, "request": request}))
+                case Err(why):
+                    print(f"Could not read request: {why}")
+        case Err(why):
+            print(f"Could not read policy: {why}")
+
+test "grounded answer cites policy basis":
+    answer = RefundAnswer("Eligible after usage verification.", "Annual plans, 14 days, under 10% usage.", False, "")
+    with mock analyze -> Ok(answer):
+        result = answer_refund({"policy": "clause", "request": "request"})
+        assert "BASIS" in result
+        assert "under 10%" in result

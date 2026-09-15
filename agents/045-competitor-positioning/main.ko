@@ -1,0 +1,60 @@
+use fs
+
+type Review:
+    summary: str @description("Factual, concise result")
+    decision: str @description("approve, review, reject, or escalate")
+    evidence: list[str] @description("Short source-grounded evidence items")
+
+TASK = "produces evidence-linked product differences. Use only the supplied source, cite evidence, and say what is missing."
+
+agent investigate(source: str) -> str:
+    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+
+    with context(max_input_tokens = 8_000, reserve_output_tokens = 800):
+        result: Review = analyze(source, TASK, model="gpt")
+    match result:
+        case Ok(review):
+            return f"{review.decision}: {review.summary}"
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(reason):
+            return f"failed: {reason}"
+
+def load_input() -> str:
+    combined = ""
+    match fs.glob("agents/045-competitor-positioning/data/products/*.md"):
+        case Ok(paths):
+            for path in paths:
+                match fs.read(path):
+                    case Ok(text):
+                        combined = combined + "\n" + text
+                    case Err(why):
+                        combined = combined + f"\nread error: {why}"
+        case Err(why):
+            return f"glob error: {why}"
+    return combined
+
+def main():
+    source = load_input()
+    output = investigate(source)
+    with budget(max_tokens = 6_000):
+        outputs = parallel for item in [source]:
+            return investigate(item)
+    for output in outputs:
+        print(output)
+
+test "mocked model result is rendered deterministically":
+    with mock analyze -> Ok(Review("fixture-backed result", "review", ["synthetic source"])):
+        output = investigate("synthetic input")
+        assert output == "review: fixture-backed result", f"got: {output}"
+
+test "all non-success outcomes remain values":
+    with mock analyze -> Uncertain("needs evidence"):
+        assert investigate("x") == "uncertain: needs evidence"
+    with mock analyze -> Exhausted("tokens"):
+        assert investigate("x") == "exhausted: tokens"
+    with mock analyze -> Failed("provider unavailable"):
+        assert investigate("x") == "failed: provider unavailable"
+

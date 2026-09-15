@@ -1,0 +1,52 @@
+use fs
+
+type StyleFinding:
+    chapter: str
+    preferred_terms: list[str]
+    voice_drift: str
+    revision: str
+
+tool glossary(term: str) -> str:
+    "Return the approved product-language rule for a term."
+    if term == "user":
+        return "Prefer customer in external documentation."
+    if term == "AI":
+        return "Use agent when referring to an acting software component."
+    return "No special rule; keep wording plain and direct."
+
+agent inspect_chapter(path: str, text: str) -> str:
+    budget: max_tokens = 4000, max_steps = 4
+    finding: StyleFinding = analyze({"chapter": path, "text": text}, "Find terminology and voice drift across this chapter. Consult glossary for disputed terms. Propose one concise revision.", model="gpt", tools=[glossary])
+    match finding:
+        case Ok(f):
+            return f"{f.chapter}: {f.voice_drift}\nrevision: {f.revision}"
+        case Uncertain(why):
+            return f"{path}: HUMAN REVIEW - {why}"
+        case Exhausted(meter):
+            return f"{path}: EXHAUSTED - {meter}"
+        case Failed(why):
+            return f"{path}: FAILED - {why}"
+
+def synthesize(parts: list[str]) -> str:
+    out = "STYLE CONSISTENCY REPORT\n"
+    for part in parts:
+        out += f"\n{part}\n"
+    return out
+
+def main():
+    match fs.glob("agents/069-style-consistency/data/chapters/*.md"):
+        case Ok(paths):
+            results = parallel for path in paths:
+                match fs.read(path):
+                    case Ok(text):
+                        return inspect_chapter(path, text)
+                    case Err(why):
+                        return f"{path}: unreadable - {why}"
+            print(synthesize(results))
+        case Err(why):
+            print(f"cannot list chapters: {why}")
+
+test "glossary-backed review produces a chapter finding":
+    with mock analyze -> Ok(StyleFinding("intro", ["customer"], "too promotional", "Customers can configure the agent.")):
+        assert "too promotional" in inspect_chapter("intro", "Users unleash our amazing AI.")
+

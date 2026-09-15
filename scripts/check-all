@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+kora_bin="${KORA_BIN:-$repo_root/../kora-lang/target/debug/kora}"
+
+if [[ ! -x "$kora_bin" ]]; then
+  echo "Kora compiler not found at $kora_bin" >&2
+  echo "Set KORA_BIN to the compiler you want to use." >&2
+  exit 1
+fi
+
+mapfile_cmd="mapfile"
+if ! command -v "$mapfile_cmd" >/dev/null 2>&1; then
+  files=()
+  while IFS= read -r file; do
+    files+=("$file")
+  done < <(find "$repo_root/agents" -mindepth 2 -maxdepth 2 -name 'main.ko' -type f | sort)
+else
+  mapfile -t files < <(find "$repo_root/agents" -mindepth 2 -maxdepth 2 -name 'main.ko' -type f | sort)
+fi
+
+if [[ "${#files[@]}" -ne 100 ]]; then
+  echo "Expected 100 agent programs, found ${#files[@]}." >&2
+  exit 1
+fi
+
+cd "$repo_root"
+"$kora_bin" check "${files[@]}"
+
+for file in "${files[@]}"; do
+  "$kora_bin" test "$file"
+done
+
+echo "Checked and mock-tested all 100 agents."

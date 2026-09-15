@@ -1,0 +1,46 @@
+use http
+use json
+
+type LiteraturePick:
+    title: str
+    doi: str
+    why_read: str
+    limitation: str
+
+agent assess_item(item: dict) -> str:
+    budget: max_tokens = 2100, max_calls = 1
+    result: LiteraturePick = analyze(item, "Assess this Crossref work for relevance to software supply-chain security. Give the DOI, why to read it, and one metadata limitation.", model="gpt")
+    match result:
+        case Ok(pick):
+            return f"{pick.title} | DOI {pick.doi} | {pick.why_read} | limit: {pick.limitation}"
+        case Uncertain(reason):
+            return f"Crossref item uncertain: {reason}"
+        case Exhausted(meter):
+            return f"Crossref item exhausted: {meter}"
+        case Failed(why):
+            return f"Crossref analysis failed: {why}"
+
+def main():
+    url = "https://api.crossref.org/works?query.title=software%20supply%20chain%20security&rows=3"
+    match http.get(url):
+        case Ok(response):
+            match json.parse(response["body"]):
+                case Ok(payload):
+                    items = payload["message"]["items"]
+                    with budget(max_tokens = 9000):
+                        reports = parallel for item in items:
+                            return assess_item(item)
+                    for report in reports:
+                        print(report)
+                case Err(why):
+                    print(f"Invalid Crossref JSON: {why}")
+        case Err(why):
+            print(f"Could not fetch Crossref: {why}")
+
+test "literature pick includes DOI and reason":
+    pick = LiteraturePick("Securing Builds", "10.1000/example", "useful threat model", "abstract missing")
+    with mock analyze -> Ok(pick):
+        answer = assess_item({"title": ["Securing Builds"]})
+        assert "10.1000/example" in answer
+        assert "useful threat model" in answer
+

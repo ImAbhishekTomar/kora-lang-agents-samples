@@ -1,0 +1,52 @@
+use fs
+use json
+
+type Abstract:
+    title: str
+    question: str
+    method: str
+    dataset: str
+    stated_limit: str
+
+type Corpus:
+    abstracts: list[Abstract]
+
+type Comparison:
+    title: str
+    method_fit: str
+    dataset_fit: str
+    limitation: str
+
+agent compare_one(paper: Abstract) -> str:
+    budget: max_tokens = 2000, max_calls = 1
+    result: Comparison = analyze(paper, "Compare this abstract against a study of reliable tool-using agents. Assess question, method, dataset, and stated limits.", model="gpt")
+    match result:
+        case Ok(c):
+            return f"{c.title} | method={c.method_fit} | data={c.dataset_fit} | limit={c.limitation}"
+        case Uncertain(reason):
+            return f"{paper.title} | uncertain: {reason}"
+        case Exhausted(meter):
+            return f"{paper.title} | exhausted: {meter}"
+        case Failed(why):
+            return f"{paper.title} | failed: {why}"
+
+def main():
+    match fs.read("agents/024-abstract-comparer/data/abstracts.json"):
+        case Ok(text):
+            match json.parse(text, Corpus):
+                case Ok(corpus):
+                    with budget(max_tokens = 10000):
+                        results = parallel for paper in corpus.abstracts:
+                            return compare_one(paper)
+                    for result in results:
+                        print(result)
+                case Err(why):
+                    print(f"Invalid abstract corpus: {why}")
+        case Err(why):
+            print(f"Could not read abstracts: {why}")
+
+test "portable nested abstract crosses a mocked agent call":
+    paper = Abstract("Tool Reliability", "Do retries help?", "controlled experiment", "500 tasks", "single model")
+    with mock analyze -> Ok(Comparison("Tool Reliability", "strong", "moderate", "single model")):
+        assert "method=strong" in compare_one(paper)
+

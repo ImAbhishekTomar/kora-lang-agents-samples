@@ -1,0 +1,39 @@
+use env
+
+type DayPlan:
+    headline: str
+    blocks: list[str]
+    risk: str
+
+def planner_style() -> str:
+    if not env.has("PLANNER_STYLE"):
+        return "clear and practical"
+    match env.get("PLANNER_STYLE"):
+        case Ok(style):
+            return style
+        case Err(_):
+            return "clear and practical"
+
+agent build_plan(request: str) -> str:
+    budget: max_tokens = 3000, max_calls = 1, max_steps = 2
+    result: DayPlan = analyze(request, "Build a realistic time-blocked day plan. Respect constraints and energy. Return a short headline, ordered blocks, and the largest scheduling risk.", model="gpt")
+    match result:
+        case Ok(plan):
+            return f"{plan.headline}: {plan.blocks} | risk: {plan.risk}"
+        case Uncertain(reason):
+            return f"PLAN NEEDS INPUT: {reason}"
+        case Exhausted(meter):
+            return f"PLAN STOPPED: budget exhausted ({meter})"
+        case Failed(why):
+            return f"PLAN FAILED: {why}"
+
+def main():
+    print("Describe today's tasks, fixed commitments, and energy:")
+    request = input("> ")
+    print(build_plan(f"Preferred style: {planner_style()}\n{request}"))
+
+test "planner formats a typed model result":
+    with mock analyze -> Ok(DayPlan("Focus first", ["09:00 deep work", "11:00 admin"], "protect the focus block")):
+        answer = build_plan("two tasks")
+        assert "Focus first" in answer
+        assert "09:00 deep work" in answer

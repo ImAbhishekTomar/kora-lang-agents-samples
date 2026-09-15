@@ -1,0 +1,37 @@
+use fs
+use json
+
+type CommitBatch:
+    commits: list[str]
+
+agent write_notes(commits: CommitBatch) -> str:
+    budget: max_tokens = 3200, max_calls = 1
+    notes: str = analyze(commits, "Write concise release notes grouped into Added, Fixed, and Changed. Mention only user-visible facts in the commits.", model="gpt") stream
+    match notes:
+        case Ok(text):
+            return text
+        case Uncertain(reason):
+            return f"Could not distinguish user-visible changes: {reason}"
+        case Exhausted(meter):
+            return f"Release notes exhausted: {meter}"
+        case Failed(why):
+            return f"Release notes failed after any emitted text: {why}"
+
+def main():
+    match fs.read("agents/013-release-notes/data/commits.json"):
+        case Ok(text):
+            match json.parse(text, CommitBatch):
+                case Ok(batch):
+                    print(write_notes(batch))
+                case Err(why):
+                    print(f"Invalid commit data: {why}")
+        case Err(why):
+            print(f"Could not read commits: {why}")
+
+test "streaming call returns its terminal text":
+    batch = CommitBatch(["feat: add CSV export", "fix: keep filters on refresh"])
+    with mock analyze -> Ok("Added: CSV export\nFixed: filters persist after refresh"):
+        answer = write_notes(batch)
+        assert "CSV export" in answer
+        assert "filters persist" in answer
+

@@ -1,0 +1,15 @@
+# The accurate vision model: the same recipe on 7B weights.
+#
+# Worth it when the extraction matters more than the wait. Six of these at once
+# is more than a 16 GB machine holds, so drop `BATCH` in extract.ko to 1.
+#
+#   ollama pull qwen2.5vl:7b
+#   ollama create kora-invoice-vision-7b -f vision-extract-agent/Modelfile.7b
+#
+# Then use the full model entry in kora.toml:
+# vision = { name = "kora-invoice-vision-7b", endpoint = "http://localhost:11434", api = "ollama" }.
+
+FROM qwen2.5vl:7b
+
+PARAMETER num_ctx 16384
+PARAMETER temperature 0

@@ -1,0 +1,28 @@
+use fs
+
+agent summarize_transcript(text: str) -> str:
+    budget: max_tokens = 5000, max_steps = 2
+    with context(max_input_tokens = 14000, reserve_output_tokens = 1800):
+        summary: str = analyze(text, "Write an English summary of this multilingual transcript. Preserve names, organizations, dates, and explicit uncertainty. Label untranslated or ambiguous phrases.", model="gpt") on token(piece):
+            write(piece)
+    match summary:
+        case Ok(answer):
+            return answer
+        case Uncertain(why):
+            return f"HUMAN TRANSLATOR NEEDED: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match fs.read("agents/078-multilingual-transcript/data/multilingual.txt"):
+        case Ok(text):
+            print(summarize_transcript(text))
+        case Err(why):
+            print(f"cannot read transcript: {why}")
+
+test "the streamed call still yields a deterministic outcome":
+    with mock analyze -> Ok("Marta and Kenji agreed to meet on 18 September; budget approval remains uncertain."):
+        assert "budget approval remains uncertain" in summarize_transcript("synthetic transcript")
+

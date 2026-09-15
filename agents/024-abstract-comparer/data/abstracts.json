@@ -1,0 +1,6 @@
+{"abstracts":[
+  {"title":"Tool Reliability","question":"Do bounded retries improve completion?","method":"controlled experiment","dataset":"500 synthetic tasks","stated_limit":"one model family"},
+  {"title":"Human Oversight","question":"When should agents escalate?","method":"observational study","dataset":"120 support workflows","stated_limit":"single company"},
+  {"title":"Planning Benchmarks","question":"Do plans predict success?","method":"benchmark comparison","dataset":"eight public benchmarks","stated_limit":"English only"}
+]}
+

@@ -1,0 +1,53 @@
+use fs
+use csv
+use time
+
+type OpenTicket:
+    id: str
+    opened_epoch: int
+    sla_minutes: int
+    summary: str
+
+type SlaRisk:
+    risk: str
+    minutes_left: int
+    reason: str
+    next_action: str
+
+agent assess_sla(ticket: OpenTicket, current_epoch: int) -> str:
+    budget: max_tokens = 1700, max_calls = 1, max_seconds = 20
+    result: SlaRisk = analyze({"ticket": ticket, "current_epoch": current_epoch}, "Assess SLA breach risk as low, medium, high, or breached. Compute minutes left from the supplied current epoch and opened epoch, then propose one action.", model="gpt")
+    match result:
+        case Ok(risk) if risk.risk in ["high", "breached"]:
+            return f"ALERT {ticket.id} | {risk.risk} | {risk.minutes_left}m | {risk.next_action}"
+        case Ok(risk):
+            return f"{ticket.id} | {risk.risk} | {risk.minutes_left}m | {risk.reason}"
+        case Uncertain(reason):
+            return f"{ticket.id} | uncertain | {reason}"
+        case Exhausted(meter):
+            return f"{ticket.id} | exhausted | {meter}"
+        case Failed(why):
+            return f"{ticket.id} | failed | {why}"
+
+def main():
+    started = time.now()
+    current_epoch = time.now()
+    match fs.read("agents/033-sla-risk-monitor/data/open_tickets.csv"):
+        case Ok(text):
+            match csv.parse(text, OpenTicket):
+                case Ok(tickets):
+                    with budget(max_tokens = 11000, max_seconds = 40):
+                        risks = parallel for ticket in tickets:
+                            return assess_sla(ticket, current_epoch)
+                    for risk in risks:
+                        print(risk)
+                    print(f"analysis took {time.elapsed(started)} seconds")
+                case Err(why):
+                    print(f"Invalid ticket CSV: {why}")
+        case Err(why):
+            print(f"Could not read open tickets: {why}")
+
+test "high risk takes alert guard":
+    ticket = OpenTicket("S-1", 1789440000, 60, "checkout unavailable")
+    with mock analyze -> Ok(SlaRisk("high", 8, "deadline near", "page on-call")):
+        assert "ALERT S-1" in assess_sla(ticket, 1789443120)

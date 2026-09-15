@@ -1,0 +1,53 @@
+use fs
+use csv
+
+type Candidate:
+    id: str
+    title: str
+    abstract: str
+
+type Screen:
+    decision: str
+    reason: str
+    criterion: str
+
+agent screen_one(candidate: Candidate) -> str:
+    budget: max_tokens = 1600, max_calls = 1
+    result: Screen = analyze(candidate, "Screen for a review of bounded autonomous software agents. Decision must be include, exclude, or maybe, with one explicit criterion.", model="gpt")
+    match result:
+        case Ok(screen) if screen.decision == "include":
+            return f"INCLUDE {candidate.id} | {screen.criterion} | {screen.reason}"
+        case Ok(screen):
+            return f"{screen.decision} {candidate.id} | {screen.criterion} | {screen.reason}"
+        case Uncertain(reason):
+            return f"maybe {candidate.id} | {reason}"
+        case Exhausted(meter):
+            return f"stopped {candidate.id} | {meter}"
+        case Failed(why):
+            return f"failed {candidate.id} | {why}"
+
+def main():
+    match fs.read("agents/028-review-screener/data/candidates.csv"):
+        case Ok(text):
+            match csv.parse(text, Candidate):
+                case Ok(candidates):
+                    with budget(max_tokens = 12000):
+                        results = parallel for candidate in candidates:
+                            return screen_one(candidate)
+                    included = 0
+                    for result in results:
+                        print(result)
+                        if "INCLUDE" in result:
+                            included += 1
+                        if included == 3:
+                            break
+                case Err(why):
+                    print(f"Invalid candidates CSV: {why}")
+        case Err(why):
+            print(f"Could not read candidates: {why}")
+
+test "include decision takes guarded arm":
+    candidate = Candidate("P1", "Bounded Agents", "Agents have explicit step limits.")
+    with mock analyze -> Ok(Screen("include", "direct evaluation", "bounded software agents")):
+        assert "INCLUDE P1" in screen_one(candidate)
+

@@ -1,0 +1,52 @@
+use fs
+use json
+
+type Facts:
+    product: str
+    launch_date: str
+    measured_improvement: int
+    approved_regions: list[str]
+
+type ClaimCheck:
+    claim: str
+    verdict: str
+    evidence: str
+    correction: str
+
+agent check_claim(claim: str, facts: Facts) -> str:
+    budget: max_tokens = 3500, max_steps = 2
+    check: ClaimCheck = analyze({"claim": claim, "approved_facts": facts}, "Act as a press-release fact checker. Mark supported, contradicted, or not-established. Never treat missing evidence as true.", model="gpt")
+    match check:
+        case Ok(c):
+            return f"{c.verdict}: {c.claim} | {c.evidence} | correction: {c.correction}"
+        case Uncertain(why):
+            return f"UNCERTAIN: {claim} | {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {claim} | {meter}"
+        case Failed(why):
+            return f"FAILED: {claim} | {why}"
+
+def main():
+    match fs.read("agents/070-press-release-fact-check/data/approved_facts.json"):
+        case Ok(raw):
+            match json.parse(raw, Facts):
+                case Ok(facts):
+                    match fs.read("agents/070-press-release-fact-check/data/draft.md"):
+                        case Ok(draft):
+                            claims = [draft, "Available worldwide", "Measured improvement is 42 percent"]
+                            checks = parallel for claim in claims:
+                                return check_claim(claim, facts)
+                            for check in checks:
+                                print(check)
+                        case Err(why):
+                            print(f"draft unreadable: {why}")
+                case Err(why):
+                    print(f"facts invalid: {why}")
+        case Err(why):
+            print(f"facts unreadable: {why}")
+
+test "unsupported claims stay visibly unsupported":
+    facts = Facts("Kora Assist", "2026-10-01", 18, ["US", "CA"])
+    with mock analyze -> Ok(ClaimCheck("Available worldwide", "not-established", "Only US and CA approved", "Available in the US and Canada")):
+        assert "not-established" in check_claim("Available worldwide", facts)
+

@@ -1,0 +1,53 @@
+use notes
+
+type IncidentPlan:
+    status: str
+    timeline: list[str]
+    missing_checks: list[str]
+    next_action: str
+
+tool elapsed_minutes(start_minute: int, current_minute: int) -> int:
+    "Calculate elapsed incident minutes."
+    return current_minute - start_minute
+
+agent command_incident(report: str) -> str:
+    budget: max_tokens = 5000, max_calls = 3, max_steps = 6
+    with context(max_input_tokens = 10000, reserve_output_tokens = 1200):
+        result: IncidentPlan = analyze(report, "Build an incident timeline, list missing checks, and propose one next action. Use the elapsed-time tool when needed.", model="gpt", tools=[elapsed_minutes]) on tool_call(name, args):
+            print(f"incident tool: {name} {args}")
+    match result:
+        case Ok(plan):
+            notes.write("incident_status", plan.status)
+            approval = ask_human(f"Approve next action: {plan.next_action}?", plan.missing_checks)
+            return f"{plan.status} | approval={approval} | timeline={plan.timeline}"
+        case Uncertain(reason):
+            return f"INCIDENT UNCERTAIN: {reason}"
+        case Exhausted(meter):
+            return f"INCIDENT EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"INCIDENT FAILED: {why}"
+
+agent stream_update(report: str) -> str:
+    budget: max_tokens = 1200, max_calls = 1
+    update: str = analyze(report, "Write a one-paragraph incident update.", model="gpt") on token(piece):
+        write(piece)
+    print("")
+    match update:
+        case Ok(text):
+            return text
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(why):
+            return f"failed: {why}"
+
+def main():
+    print("Paste the current incident report:")
+    print(command_incident(input("> ")))
+
+test "incident plan is schema constrained":
+    plan = IncidentPlan("investigating", ["09:00 alert"], ["database saturation"], "inspect slow queries")
+    with mock analyze -> Ok(plan):
+        assert plan.next_action == "inspect slow queries"
+        assert elapsed_minutes(10, 17) == 7

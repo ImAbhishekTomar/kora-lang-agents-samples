@@ -1,0 +1,46 @@
+use fs
+use csv
+
+type HabitDay:
+    date: str
+    sleep_hours: float
+    exercise_minutes: int
+    mood: int
+    completed: bool
+
+type HabitInsight:
+    pattern: str
+    experiment: str
+    evidence: str
+
+agent reflect(rows: list[HabitDay]) -> str:
+    budget: max_tokens = 3200, max_calls = 1
+    result: HabitInsight = analyze(rows, "Find one supported habit pattern and propose one small seven-day experiment. Do not claim causation.", model="gpt")
+    match result:
+        case Ok(insight) if len(insight.experiment) > 0:
+            return f"PATTERN: {insight.pattern}\nEXPERIMENT: {insight.experiment}\nEVIDENCE: {insight.evidence}"
+        case Ok(_):
+            return "No actionable experiment was produced."
+        case Uncertain(reason):
+            return f"Not enough evidence: {reason}"
+        case Exhausted(meter):
+            return f"Reflection exhausted: {meter}"
+        case Failed(why):
+            return f"Reflection failed: {why}"
+
+def main():
+    match fs.read("agents/007-habit-reflection/data/habits.csv"):
+        case Ok(text):
+            match csv.parse(text, HabitDay):
+                case Ok(rows):
+                    print(reflect(rows))
+                case Err(why):
+                    print(f"Invalid habit CSV: {why}")
+        case Err(why):
+            print(f"Could not read habits: {why}")
+
+test "guard accepts a concrete experiment":
+    rows = [HabitDay("2026-09-01", 7.5, 20, 4, True)]
+    with mock analyze -> Ok(HabitInsight("better mood follows walks", "walk ten minutes after lunch", "four logged days")):
+        assert "walk ten minutes" in reflect(rows)
+

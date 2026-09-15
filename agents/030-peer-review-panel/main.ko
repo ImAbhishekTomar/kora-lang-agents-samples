@@ -1,0 +1,75 @@
+use fs
+
+type SpecialistReview:
+    focus: str
+    findings: list[str]
+    verdict: str
+
+type PanelReview:
+    consensus: str
+    major_issues: list[str]
+    disagreements: list[str]
+
+agent method_reviewer(manuscript: str) -> str:
+    budget: max_tokens = 2000, max_calls = 1
+    result: SpecialistReview = analyze(manuscript, "Review methods only.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"METHOD {r.verdict}: {r.findings}"
+        case Uncertain(reason):
+            return f"METHOD uncertain: {reason}"
+        case Exhausted(meter):
+            return f"METHOD exhausted: {meter}"
+        case Failed(why):
+            return f"METHOD failed: {why}"
+
+agent clarity_reviewer(manuscript: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    result: SpecialistReview = analyze(manuscript, "Review clarity only.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"CLARITY {r.verdict}: {r.findings}"
+        case Uncertain(reason):
+            return f"CLARITY uncertain: {reason}"
+        case Exhausted(meter):
+            return f"CLARITY exhausted: {meter}"
+        case Failed(why):
+            return f"CLARITY failed: {why}"
+
+agent reproducibility_reviewer(manuscript: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    result: SpecialistReview = analyze(manuscript, "Review reproducibility only.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"REPRO {r.verdict}: {r.findings}"
+        case Uncertain(reason):
+            return f"REPRO uncertain: {reason}"
+        case Exhausted(meter):
+            return f"REPRO exhausted: {meter}"
+        case Failed(why):
+            return f"REPRO failed: {why}"
+
+agent panel(manuscript: str) -> str:
+    budget: max_tokens = 8500, max_calls = 8, max_steps = 8
+    result: PanelReview = analyze(manuscript, "Act as chair. Delegate to all three specialist reviewers, merge agreements, and preserve disagreements.", model="gpt", tools=[method_reviewer, clarity_reviewer, reproducibility_reviewer])
+    match result:
+        case Ok(review):
+            return f"CONSENSUS {review.consensus}\nMAJOR {review.major_issues}\nDISAGREEMENTS {review.disagreements}"
+        case Uncertain(reason):
+            return f"PANEL UNCERTAIN: {reason}"
+        case Exhausted(meter):
+            return f"PANEL EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"PANEL FAILED: {why}"
+
+def main():
+    match fs.read("agents/030-peer-review-panel/data/manuscript.md"):
+        case Ok(manuscript):
+            print(panel(manuscript))
+        case Err(why):
+            print(f"Could not read manuscript: {why}")
+
+test "supervisor preserves disagreement":
+    review = PanelReview("promising but revise", ["sample is small"], ["clarity reviewer accepts terminology"])
+    with mock analyze -> Ok(review):
+        assert "DISAGREEMENTS" in panel("synthetic manuscript")

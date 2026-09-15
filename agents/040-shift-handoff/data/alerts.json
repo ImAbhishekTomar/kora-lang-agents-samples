@@ -1,0 +1,2 @@
+{"alerts":[{"severity":"high","service":"checkout","state":"resolved"},{"severity":"medium","service":"email","state":"open"}]}
+

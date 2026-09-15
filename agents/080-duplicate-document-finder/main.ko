@@ -1,0 +1,56 @@
+use fs
+use time
+
+type DuplicateCheck:
+    duplicate: bool
+    similarity: str
+    meaningful_differences: list[str]
+    evidence: list[str]
+
+agent compare_pair(left: str, right: str) -> str:
+    budget: max_tokens = 4500, max_steps = 2, max_seconds = 30
+    result: DuplicateCheck = analyze({"left": left, "right": right}, "Decide whether these documents are semantic near-duplicates. Ignore formatting but list every meaningful difference and quote brief evidence.", model="gpt")
+    match result:
+        case Ok(r):
+            if r.duplicate:
+                return f"DUPLICATE ({r.similarity}) differences={r.meaningful_differences} evidence={r.evidence}"
+            return f"DISTINCT ({r.similarity}) differences={r.meaningful_differences}"
+        case Uncertain(why):
+            return f"UNCERTAIN: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    started = time.now()
+    match fs.glob("agents/080-duplicate-document-finder/data/documents/*.md"):
+        case Ok(paths):
+            pairs = []
+            if len(paths) > 1:
+                first = 0
+                while first < len(paths) - 1:
+                    second = first + 1
+                    while second < len(paths):
+                        append(pairs, {"left": paths[first], "right": paths[second]})
+                        second += 1
+                    first += 1
+            results = parallel for pair in pairs:
+                match fs.read(pair["left"]):
+                    case Ok(left):
+                        match fs.read(pair["right"]):
+                            case Ok(right):
+                                return f"{pair["left"]} <> {pair["right"]}: {compare_pair(left, right)}"
+                            case Err(why):
+                                return f"unreadable pair: {why}"
+                    case Err(why):
+                        return f"unreadable pair: {why}"
+            for result in results:
+                print(result)
+            print(f"elapsed {time.elapsed(started)} seconds")
+        case Err(why):
+            print(f"cannot list documents: {why}")
+
+test "near duplicates retain their meaningful difference":
+    with mock analyze -> Ok(DuplicateCheck(True, "high", ["renewal date differs"], ["renews 1 Oct vs 1 Nov"])):
+        assert "renewal date differs" in compare_pair("contract A", "contract B")

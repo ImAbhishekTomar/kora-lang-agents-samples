@@ -1,0 +1,69 @@
+use fs
+use json
+use http
+use env
+
+type Ticket:
+    id: str
+    subject: str
+    body: str
+    customer_tier: str
+
+type Route:
+    queue: str
+    priority: str
+    internal_note: str
+
+agent route_ticket(ticket: Ticket) -> str:
+    budget: max_tokens = 1700, max_calls = 1
+    result: Route = analyze(ticket, "Route to billing, technical, account, or general. Set priority low, medium, high, or critical and write a factual internal note.", model="gpt")
+    match result:
+        case Ok(route) if route.priority == "critical":
+            return f"{ticket.id} | PAGE | {route.queue} | {route.internal_note}"
+        case Ok(route):
+            return f"{ticket.id} | {route.priority} | {route.queue} | {route.internal_note}"
+        case Uncertain(reason):
+            return f"{ticket.id} | manual | {reason}"
+        case Exhausted(meter):
+            return f"{ticket.id} | exhausted | {meter}"
+        case Failed(why):
+            return f"{ticket.id} | failed | {why}"
+
+def parse_and_route(line: str) -> str:
+    match json.parse(line, Ticket):
+        case Ok(ticket):
+            return route_ticket(ticket)
+        case Err(why):
+            return f"invalid JSONL row: {why}"
+
+def post_demo(routes: list[str]):
+    # Opt-in only. This fixed public echo endpoint demonstrates a safe POST
+    # without turning model or file data into a destination URL.
+    if not env.has("KORA_POST_DEMO"):
+        return
+    match json.stringify(routes):
+        case Ok(body):
+            match http.post("https://httpbin.org/post", body):
+                case Ok(response):
+                    print(f"demo webhook status: {response['status']}")
+                case Err(why):
+                    print(f"demo webhook failed: {why}")
+        case Err(why):
+            print(f"could not serialize demo routes: {why}")
+
+def main():
+    match fs.lines("agents/031-ticket-router/data/tickets.jsonl"):
+        case Ok(lines):
+            with budget(max_tokens = 10000):
+                routes = parallel for line in lines:
+                    return parse_and_route(line)
+            for route in routes:
+                print(route)
+            post_demo(routes)
+        case Err(why):
+            print(f"Could not read tickets: {why}")
+
+test "critical route uses guard":
+    ticket = Ticket("T-1", "Account hacked", "Unknown login and charges", "pro")
+    with mock analyze -> Ok(Route("account", "critical", "possible takeover")):
+        assert "PAGE" in route_ticket(ticket)

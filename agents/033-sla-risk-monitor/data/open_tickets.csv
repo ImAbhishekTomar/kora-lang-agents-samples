@@ -1,0 +1,4 @@
+id,opened_epoch,sla_minutes,summary
+S-1,1789440000,60,Checkout unavailable for one region
+S-2,1789441800,240,Customer cannot rename a saved report
+S-3,1789438200,120,Invoice export returns an error

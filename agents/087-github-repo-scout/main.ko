@@ -1,0 +1,47 @@
+use http
+use json
+
+URLS = [
+    "https://api.github.com/repos/rust-lang/rust",
+    "https://api.github.com/repos/python/cpython",
+]
+
+type RepoSignal:
+    repository: str
+    activity_signal: str
+    documentation_signal: str
+    caveats: list[str]
+
+agent scout(body: str) -> str:
+    budget: max_tokens = 3500, max_steps = 2
+    signal: RepoSignal = analyze(body, "Summarize public repository activity and documentation signals from GitHub REST metadata. Stars are popularity, not quality; state missing signals.", model="gpt")
+    match signal:
+        case Ok(s):
+            return f"{s.repository} | activity {s.activity_signal} | docs {s.documentation_signal} | caveats {s.caveats}"
+        case Uncertain(why):
+            return f"UNCERTAIN REPOSITORY: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    with budget(max_tokens = 10000, max_seconds = 45):
+        results = parallel for url in URLS:
+            match http.get(url):
+                case Ok(response):
+                    body = response["body"]
+                    match json.parse(body):
+                        case Ok(_):
+                            return scout(body)
+                        case Err(why):
+                            return f"partial: invalid GitHub JSON - {why}"
+                case Err(why):
+                    return f"partial: GitHub request failed - {why}"
+    for result in results:
+        print(result)
+
+test "repository comparisons preserve caveats":
+    with mock analyze -> Ok(RepoSignal("example/repo", "recent push", "README metadata unavailable", ["one API snapshot", "stars are not quality"])):
+        assert "stars are not quality" in scout("{}")
+

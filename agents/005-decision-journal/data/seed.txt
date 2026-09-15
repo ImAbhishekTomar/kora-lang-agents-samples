@@ -1,0 +1,2 @@
+Should we launch the new billing workflow to every customer next week, or run a small pilot first?
+

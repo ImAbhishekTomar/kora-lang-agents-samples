@@ -1,0 +1,41 @@
+use fs
+
+type Receipt:
+    merchant: str
+    date: str
+    total: float
+    tax: float
+    category: str
+    evidence: str
+
+agent extract_receipt(path: str) -> str:
+    budget: max_tokens = 6000, max_steps = 2
+    match fs.image(path):
+        case Ok(image):
+            receipt: Receipt = analyze(image, "Read this synthetic receipt. Extract merchant, ISO date, total, tax, and category. Quote visible evidence and do not infer obscured values.", model="gpt")
+            match receipt:
+                case Ok(r):
+                    return f"{r.merchant} | {r.date} | total {r.total} | tax {r.tax} | {r.category} | {r.evidence}"
+                case Uncertain(why):
+                    return f"HUMAN REVIEW: {path} - {why}"
+                case Exhausted(meter):
+                    return f"EXHAUSTED: {path} - {meter}"
+                case Failed(why):
+                    return f"FAILED: {path} - {why}"
+        case Err(why):
+            return f"UNREADABLE: {path} - {why}"
+
+def main():
+    match fs.glob("agents/071-receipt-vision/data/receipts/*.png"):
+        case Ok(paths):
+            results = parallel for path in paths:
+                return extract_receipt(path)
+            for result in results:
+                print(result)
+        case Err(why):
+            print(f"cannot list receipts: {why}")
+
+test "vision extraction has a deterministic typed path":
+    with mock analyze -> Ok(Receipt("Northwind Cafe", "2026-09-14", 18.50, 1.50, "meals", "TOTAL 18.50")):
+        assert "Northwind Cafe" in extract_receipt("agents/071-receipt-vision/data/receipts/cafe.png")
+

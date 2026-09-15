@@ -1,0 +1,46 @@
+use fs
+use json
+
+type Pantry:
+    ingredients: list[str]
+    avoid: list[str]
+    max_minutes: int
+
+type MealPlan:
+    meals: list[str]
+    substitutions: list[str]
+    constraint_check: str
+
+tool ingredient_available(name: str) -> bool:
+    "Return whether a common seed ingredient is available."
+    return name in ["rice", "lentils", "tomato", "spinach", "eggs"]
+
+agent plan_meals(pantry: Pantry) -> str:
+    budget: max_tokens = 3600, max_calls = 4, max_steps = 5
+    result: MealPlan = analyze(pantry, "Plan exactly three distinct meals within the avoid list and time limit. Check spinach exactly once through the ingredient_available tool using the tool protocol, never by narrating a tool call. After the tool result, return only the requested MealPlan fields with substitutions and a constraint check.", model="gpt", tools=[ingredient_available])
+    match result:
+        case Ok(plan):
+            return f"MEALS {plan.meals}\nSWAPS {plan.substitutions}\nCHECK {plan.constraint_check}"
+        case Uncertain(reason):
+            return f"Need another pantry detail: {reason}"
+        case Exhausted(meter):
+            return f"Meal planning exhausted: {meter}"
+        case Failed(why):
+            return f"Meal planning failed: {why}"
+
+def main():
+    match fs.read("agents/009-pantry-meal-planner/data/pantry.json"):
+        case Ok(text):
+            match json.parse(text, Pantry):
+                case Ok(pantry):
+                    print(plan_meals(pantry))
+                case Err(why):
+                    print(f"Invalid pantry: {why}")
+        case Err(why):
+            print(f"Could not read pantry: {why}")
+
+test "planner keeps alternatives explicit":
+    pantry = Pantry(["rice", "lentils"], ["peanuts"], 30)
+    plan = MealPlan(["dal rice", "tomato rice", "lentil soup"], ["spinach for tomato"], "all meals avoid peanuts")
+    with mock analyze -> Ok(plan):
+        assert "spinach for tomato" in plan_meals(pantry)

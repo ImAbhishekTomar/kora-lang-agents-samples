@@ -1,0 +1,48 @@
+use http
+use json
+
+URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_week.geojson"
+
+type Briefing:
+    event_count: int
+    highest_severity: str
+    significant_events: list[str]
+    safety_note: str
+    data_limit: str
+
+agent brief(body: str) -> str:
+    budget: max_tokens = 4500, max_steps = 2
+    result: Briefing = analyze(body, "Create a severity briefing from this USGS GeoJSON. Use only magnitude, place, time, and detail links present in the feed. This is situational information, not an earthquake prediction.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"events={r.event_count} | severity={r.highest_severity} | notable={r.significant_events} | {r.safety_note} | limit={r.data_limit}"
+        case Uncertain(why):
+            return f"UNCERTAIN FEED: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match http.get(URL):
+        case Ok(response):
+            body = response["body"]
+            match json.parse(body):
+                case Ok(feed):
+                    match json.get(feed, "features"):
+                        case Ok(events):
+                            if len(events) == 0:
+                                print("USGS reports no significant events this week.")
+                            else:
+                                print(brief(body))
+                        case Err(why):
+                            print(f"USGS schema changed: {why}")
+                case Err(why):
+                    print(f"invalid USGS JSON: {why}")
+        case Err(why):
+            print(f"USGS request failed: {why}")
+
+test "the briefing names its data limit":
+    with mock analyze -> Ok(Briefing(1, "significant", ["M6.1 synthetic event"], "Follow local authorities.", "Seven-day feed only")):
+        assert "Seven-day feed only" in brief("{}")
+

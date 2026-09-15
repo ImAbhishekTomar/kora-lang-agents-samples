@@ -1,0 +1,2 @@
+Synthetic contract. Alpha agrees to deliver the report by 2026-10-15. Beta must give notice by email at least 10 days before termination. The term 'business day' is undefined.
+

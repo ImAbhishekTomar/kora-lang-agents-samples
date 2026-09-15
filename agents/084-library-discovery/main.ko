@@ -1,0 +1,47 @@
+use http
+use json
+
+URLS = [
+    "https://openlibrary.org/search.json?q=distributed+systems&limit=5&fields=key,title,author_name,first_publish_year,subject",
+    "https://openlibrary.org/search.json?q=reliable+software&limit=5&fields=key,title,author_name,first_publish_year,subject",
+]
+
+type Discovery:
+    topic: str
+    books: list[str]
+    selection_reason: str
+    metadata_gaps: list[str]
+
+agent discover(body: str) -> str:
+    budget: max_tokens = 3500, max_steps = 2
+    result: Discovery = analyze(body, "Recommend books using only Open Library metadata. Prefer topical diversity, include author and first publication year when present, and name metadata gaps.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"{r.topic}: {r.books} | reason {r.selection_reason} | gaps {r.metadata_gaps}"
+        case Uncertain(why):
+            return f"UNCERTAIN DISCOVERY: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    with budget(max_tokens = 12000):
+        results = parallel for url in URLS:
+            match http.get(url):
+                case Ok(response):
+                    body = response["body"]
+                    match json.parse(body):
+                        case Ok(_):
+                            return discover(body)
+                        case Err(why):
+                            return f"invalid Open Library JSON: {why}"
+                case Err(why):
+                    return f"Open Library request failed: {why}"
+    for result in results:
+        print(result)
+
+test "discovery reports metadata gaps":
+    with mock analyze -> Ok(Discovery("distributed systems", ["Designing Data-Intensive Applications"], "broad systems coverage", ["edition availability not checked"])):
+        assert "edition availability" in discover("{}")
+

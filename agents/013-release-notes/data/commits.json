@@ -1,0 +1,7 @@
+{"commits":[
+  "feat: add CSV export to usage reports",
+  "fix: preserve report filters after browser refresh",
+  "refactor: simplify internal cache adapter",
+  "docs: clarify export limits"
+]}
+

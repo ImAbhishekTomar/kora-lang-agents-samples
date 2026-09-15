@@ -1,0 +1,87 @@
+use fs
+use pdf
+use pkg pdf_render as render
+
+type PageSummary:
+    page: int
+    headline: str
+    evidence: str
+    open_question: str
+
+type DocumentSummary:
+    summary: str
+    evidence: list[str]
+    open_questions: list[str]
+
+agent summarize_page(page: int, text: str) -> str:
+    budget: max_tokens = 3500, max_steps = 2
+    summary: PageSummary = analyze({"page": page, "text": text}, "Summarize only this report page. Preserve its page number, cite a short evidence phrase, and identify one open question.", model="gpt")
+    match summary:
+        case Ok(s):
+            return f"Page {s.page}: {s.headline}\nEvidence: {s.evidence}\nQuestion: {s.open_question}"
+        case Uncertain(why):
+            return f"Page {page}: UNCERTAIN - {why}"
+        case Exhausted(meter):
+            return f"Page {page}: EXHAUSTED - {meter}"
+        case Failed(why):
+            return f"Page {page}: FAILED - {why}"
+
+def reduce_pages(parts: list[str]) -> str:
+    report = "EXECUTIVE SUMMARY\n"
+    for part in parts:
+        report += f"\n{part}\n"
+    return report
+
+def summarize_text_pdf(path: str):
+    match pdf.pages(path):
+        case Ok(pages):
+            numbered = []
+            n = 1
+            for page in pages:
+                append(numbered, {"number": n, "text": page})
+                n += 1
+            with context(max_input_tokens = 16000, reserve_output_tokens = 1500):
+                parts = parallel for page in numbered:
+                    return summarize_page(page["number"], page["text"])
+            print(reduce_pages(parts))
+        case Err(why):
+            print(f"cannot read PDF: {why}")
+
+def summarize_scanned_pdf(path: str):
+    match fs.bytes(path):
+        case Ok(document):
+            match render.try_pages(document, 150, 20):
+                case Ok(images):
+                    result: DocumentSummary = analyze(
+                        {"pages": images},
+                        "Read these report pages in order. Produce an executive summary, page-linked evidence, and unresolved questions.",
+                        model="gpt",
+                    )
+                    match result:
+                        case Ok(value):
+                            print(f"{value.summary}\nevidence={value.evidence}\nquestions={value.open_questions}")
+                        case Uncertain(why):
+                            print(f"vision summary uncertain: {why}")
+                        case Exhausted(meter):
+                            print(f"vision summary exhausted: {meter}")
+                        case Failed(why):
+                            print(f"vision summary failed: {why}")
+                case Err(why):
+                    print(f"could not render scanned PDF: {why}")
+        case Err(why):
+            print(f"could not read scanned PDF bytes: {why}")
+
+def main():
+    path = "agents/073-pdf-executive-summary/data/report.pdf"
+    match pdf.info(path):
+        case Ok(info):
+            if info["has_text_layer"]:
+                summarize_text_pdf(path)
+            else:
+                summarize_scanned_pdf(path)
+        case Err(why):
+            print(f"cannot inspect PDF: {why}")
+
+test "page references survive reduction":
+    with mock analyze -> Ok(PageSummary(1, "Revenue rose", "Revenue increased 12%", "Will retention hold?")):
+        assert "Page 1" in summarize_page(1, "Revenue increased 12%.")

@@ -1,0 +1,31 @@
+type QuestionSet:
+    questions: list[str]
+    inclusion_criteria: list[str]
+    exclusion_criteria: list[str]
+
+agent refine_question(topic: str) -> str:
+    budget: max_tokens = 5200, max_calls = 2, max_steps = 3
+    first: QuestionSet = analyze(topic, "Turn this broad research idea into three testable questions with inclusion and exclusion criteria.", model="gpt")
+    match first:
+        case Ok(draft):
+            polished: QuestionSet = analyze(draft, "Tighten each question so variables, population, and comparison are explicit. Preserve the criteria.", model="gpt") else (why, kind):
+                return f"REFINEMENT {kind}: {why}; DRAFT {draft.questions}"
+            return f"QUESTIONS {polished.questions}\nINCLUDE {polished.inclusion_criteria}\nEXCLUDE {polished.exclusion_criteria}"
+        case Uncertain(reason):
+            return f"Question uncertain: {reason}"
+        case Exhausted(meter):
+            return f"Question budget exhausted: {meter}"
+        case Failed(why):
+            return f"Question refinement failed: {why}"
+
+def main():
+    print("Enter a broad research idea:")
+    print(refine_question(input("> ")))
+
+test "first question schema is deterministic":
+    draft = QuestionSet(["In adults, do reminders improve adherence versus no reminders?"], ["controlled studies"], ["no adherence measure"])
+    with mock analyze -> Ok(draft):
+        answer = refine_question("reminders")
+        assert "QUESTIONS" in answer
+        assert "controlled studies" in answer
+

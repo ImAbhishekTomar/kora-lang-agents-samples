@@ -1,0 +1,47 @@
+type Lesson:
+    explanation: str
+    check_question: str
+    next_focus: str
+
+agent coach_turn(topic: str) -> str:
+    budget: max_tokens = 2600, max_calls = 1, max_steps = 3
+    with context(max_input_tokens = 5000, reserve_output_tokens = 800):
+        result: Lesson = analyze(topic, "Explain the concept at the learner's level, ask one check question, and name the next focus.", model="gpt")
+    match result:
+        case Ok(lesson):
+            return f"{lesson.explanation}\nCHECK: {lesson.check_question}\nNEXT: {lesson.next_focus}"
+        case Uncertain(reason):
+            return f"I need a narrower topic: {reason}"
+        case Exhausted(meter):
+            return f"Study turn stopped: {meter}"
+        case Failed(why):
+            return f"Study service unavailable: {why}"
+
+agent quick_explanation(topic: str) -> str:
+    budget: max_tokens = 1200, max_calls = 1
+    answer: str = analyze(topic, "Give a two-sentence explanation for a student.", model="gpt") stream
+    match answer:
+        case Ok(text):
+            return text
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(why):
+            return f"failed: {why}"
+
+def main():
+    print("Enter topics to study; type quit to stop.")
+    while True:
+        topic = input("> ")
+        if topic == "quit":
+            break
+        print(coach_turn(topic))
+
+test "coach returns an adaptive lesson":
+    lesson = Lesson("A closure remembers its defining scope.", "What does it capture?", "lexical scope")
+    with mock analyze -> Ok(lesson):
+        answer = coach_turn("closures")
+        assert "What does it capture?" in answer
+        assert "lexical scope" in answer
+

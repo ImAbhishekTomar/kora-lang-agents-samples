@@ -1,0 +1,68 @@
+type Vote:
+    label: str @pattern("^(approve|review|reject)$")
+    reason: str
+
+type Consensus:
+    decision: str @pattern("^(approve|review|reject|no-consensus)$")
+    explanation: str
+
+agent judge(case_text: str) -> Vote:
+    budget: max_tokens = 1800, max_calls = 1
+    result: Vote = analyze(case_text, "Classify as approve, review, or reject. Cite only facts in the case.", model="gpt")
+    match result:
+        case Ok(vote):
+            return vote
+        case Uncertain(why):
+            return Vote("review", why)
+        case Exhausted(meter):
+            return Vote("review", f"budget exhausted: {meter}")
+        case Failed(why):
+            return Vote("review", f"provider failed: {why}")
+
+tool majority(labels: list[str]) -> str:
+    "Return a label only when it appears at least twice; otherwise return no-consensus."
+    for candidate in ["approve", "review", "reject"]:
+        count = 0
+        for label in labels:
+            if label == candidate:
+                count += 1
+        if count >= 2:
+            return candidate
+    return "no-consensus"
+
+agent panel(case_text: str) -> str:
+    with budget(max_tokens = 9000, max_calls = 4):
+        votes = parallel for reviewer in ["policy", "risk", "operations"]:
+            return judge(f"Reviewer lens: {reviewer}\nCase: {case_text}")
+        labels = []
+        for vote in votes:
+            append(labels, vote.label)
+        winner = majority(labels)
+        result: Consensus = analyze(
+            {"votes": votes, "winner": winner},
+            "Explain the deterministic vote result and preserve dissent. Use no-consensus when supplied.",
+            model="gpt",
+        )
+    match result:
+        case Ok(value) if value.decision == "no-consensus":
+            return f"HUMAN REVIEW: {value.explanation}"
+        case Ok(value):
+            return f"{value.decision}: {value.explanation}"
+        case Uncertain(why):
+            return f"panel uncertain: {why}"
+        case Exhausted(meter):
+            return f"panel exhausted: {meter}"
+        case Failed(why):
+            return f"panel failed: {why}"
+
+def main():
+    print(panel("Synthetic request: temporary read-only access for a four-hour incident."))
+
+test "majority requires two matching votes":
+    assert majority(["approve", "approve", "review"]) == "approve"
+    assert majority(["approve", "review", "reject"]) == "no-consensus"
+
+test "the panel exposes no consensus":
+    with mock analyze -> Ok(Vote("review", "ambiguous evidence")):
+        with mock analyze -> Ok(Consensus("no-consensus", "the reviewers disagree")):
+            assert "HUMAN REVIEW" in panel("ambiguous case")

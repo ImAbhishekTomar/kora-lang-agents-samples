@@ -1,0 +1,8 @@
+{
+  "messages": [
+    {"sender":"ops@example.test","subject":"Production errors","body":"Checkout has failed for 20 minutes."},
+    {"sender":"newsletter@example.test","subject":"Weekly digest","body":"Here are this week's product articles."},
+    {"sender":"finance@example.test","subject":"Invoice question","body":"Please confirm the purchase order by Friday."}
+  ]
+}
+

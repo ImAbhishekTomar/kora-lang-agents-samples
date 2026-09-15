@@ -1,0 +1,44 @@
+use fs
+use "./lib/reduce.ko" as reducer
+
+type CorpusNote:
+    established: list[str]
+    conflicts: list[str]
+    gaps: list[str]
+
+agent map_note(note: str) -> str:
+    budget: max_tokens = 1900, max_calls = 1
+    result: CorpusNote = analyze(note, "Extract established findings, conflicts, and knowledge gaps from this corpus note. Do not resolve conflicts.", model="gpt")
+    match result:
+        case Ok(mapped):
+            return f"ESTABLISHED {mapped.established}\nCONFLICTS {mapped.conflicts}\nGAPS {mapped.gaps}"
+        case Uncertain(reason):
+            return f"UNCERTAIN {reason}"
+        case Exhausted(meter):
+            return f"EXHAUSTED {meter}"
+        case Failed(why):
+            return f"FAILED {why}"
+
+def map_path(path: str) -> str:
+    match fs.read(path):
+        case Ok(note):
+            return map_note(note)
+        case Err(why):
+            return f"FAILED read: {why}"
+
+def main():
+    match fs.glob("agents/029-knowledge-gap-finder/data/corpus/*.md"):
+        case Ok(paths):
+            with budget(max_tokens = 12000):
+                mapped = parallel for path in paths:
+                    return map_path(path)
+            print(reducer.merge(mapped))
+        case Err(why):
+            print(f"Could not list corpus: {why}")
+
+test "map result feeds deterministic reducer":
+    note = CorpusNote(["timeouts prevent hangs"], ["best timeout differs"], ["mobile networks"])
+    with mock analyze -> Ok(note):
+        merged = reducer.merge([map_note("synthetic")])
+        assert "mobile networks" in merged
+

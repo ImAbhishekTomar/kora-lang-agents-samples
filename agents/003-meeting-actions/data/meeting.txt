@@ -1,0 +1,6 @@
+Product launch sync, 2026-09-15
+Decision: ship the reporting beta on Friday.
+Mira will send the rollout plan by 2026-09-18.
+Dev will verify the migration checklist tomorrow.
+Open question: Who owns support training?
+

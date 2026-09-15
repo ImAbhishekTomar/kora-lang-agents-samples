@@ -1,0 +1,52 @@
+use http
+use json
+
+URL = "https://api.worldbank.org/v2/country/IND/indicator/NY.GDP.PCAP.CD?format=json&per_page=20"
+
+type Trend:
+    indicator: str
+    start: str
+    end: str
+    direction: str
+    reversals: list[str]
+    missing_periods: list[str]
+    interpretation_limit: str
+
+tool percent_change(start: float, end: float) -> float:
+    "Calculate percent change; use zero only when the starting value is zero."
+    if start == 0.0:
+        return 0.0
+    return ((end - start) / start) * 100.0
+
+agent narrate(body: str) -> str:
+    budget: max_tokens = 4500, max_steps = 5
+    trend: Trend = analyze(body, "Narrate the World Bank indicator trend. Use percent_change for calculations, identify reversals and missing values, and avoid causal claims.", model="gpt", tools=[percent_change])
+    match trend:
+        case Ok(t):
+            return f"{t.indicator} {t.start} to {t.end}: {t.direction} | reversals {t.reversals} | missing {t.missing_periods} | {t.interpretation_limit}"
+        case Uncertain(why):
+            return f"UNCERTAIN TREND: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match http.get(URL):
+        case Ok(response):
+            body = response["body"]
+            match json.parse(body):
+                case Ok(series):
+                    if len(series) < 2:
+                        print("World Bank response has no series")
+                    else:
+                        print(narrate(body))
+                case Err(why):
+                    print(f"invalid World Bank JSON: {why}")
+        case Err(why):
+            print(f"World Bank request failed: {why}")
+
+test "trend narration avoids causal certainty":
+    with mock analyze -> Ok(Trend("GDP per capita", "2010", "2025", "generally rising", ["2020 decline"], ["2025"], "The series alone does not establish causes.")):
+        assert "does not establish causes" in narrate("[]")
+

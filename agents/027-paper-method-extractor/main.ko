@@ -1,0 +1,39 @@
+use pdf
+
+type Method:
+    design: str
+    sample: str
+    variables: list[str]
+    limitations: list[str]
+    page_notes: list[str]
+
+agent extract_method(pages: list[str]) -> str:
+    budget: max_tokens = 4300, max_calls = 1
+    with context(max_input_tokens = 12000, reserve_output_tokens = 1400):
+        result: Method = analyze(pages, "Extract study design, sample, variables, stated limitations, and page-specific notes. Do not infer facts absent from the PDF.", model="gpt")
+    match result:
+        case Ok(method):
+            return f"DESIGN {method.design}\nSAMPLE {method.sample}\nVARIABLES {method.variables}\nLIMITS {method.limitations}\nPAGES {method.page_notes}"
+        case Uncertain(reason):
+            return f"Method extraction uncertain: {reason}"
+        case Exhausted(meter):
+            return f"Method extraction exhausted: {meter}"
+        case Failed(why):
+            return f"Method extraction failed: {why}"
+
+def main():
+    match pdf.text("agents/027-paper-method-extractor/data/paper.pdf"):
+        case Ok(text):
+            print(f"PDF text layer contains {len(text)} characters")
+        case Err(why):
+            print(f"PDF has no readable text layer: {why}")
+    match pdf.pages("agents/027-paper-method-extractor/data/paper.pdf"):
+        case Ok(pages):
+            print(extract_method(pages))
+        case Err(why):
+            print(f"Could not read PDF pages: {why}")
+
+test "method fields are typed":
+    method = Method("randomized trial", "80 volunteers", ["latency", "accuracy"], ["short duration"], ["page 1: methods"])
+    with mock analyze -> Ok(method):
+        assert "80 volunteers" in extract_method(["Synthetic paper text"])

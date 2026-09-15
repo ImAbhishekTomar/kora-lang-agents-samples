@@ -1,0 +1,2 @@
+{"requests":[{"id":"AR-1","role":"analyst","requested":["reports:read"],"duration_days":30},{"id":"AR-2","role":"contractor","requested":["admin:*"],"duration_days":365}]}
+

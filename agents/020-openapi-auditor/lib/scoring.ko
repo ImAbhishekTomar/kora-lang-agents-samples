@@ -1,0 +1,6 @@
+def score(error_count: int, vague_count: int, drift_count: int) -> int:
+    value = 100 - (error_count * 12) - (vague_count * 10) - (drift_count * 18)
+    if value < 0:
+        return 0
+    return value
+

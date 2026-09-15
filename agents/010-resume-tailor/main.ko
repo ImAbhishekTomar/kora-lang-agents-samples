@@ -1,0 +1,38 @@
+use fs
+
+type TailoringAdvice:
+    summary: str
+    edits: list[str]
+    missing_evidence: list[str]
+
+agent tailor(resume: str, job: str) -> str:
+    budget: max_tokens = 4200, max_calls = 1
+    classified application = {"resume": resume, "job": job}
+    declassify application as safe_application for openai:
+        result: TailoringAdvice = analyze(safe_application, "Suggest truthful resume edits for this job. Never invent experience, dates, metrics, or credentials. List evidence that is missing.", model="gpt")
+    match result:
+        case Ok(advice):
+            return f"{advice.summary}\nEDITS {advice.edits}\nMISSING {advice.missing_evidence}"
+        case Uncertain(reason):
+            return f"Tailoring uncertain: {reason}"
+        case Exhausted(meter):
+            return f"Tailoring exhausted: {meter}"
+        case Failed(why):
+            return f"Tailoring failed: {why}"
+
+def main():
+    match fs.read("agents/010-resume-tailor/data/resume.md"):
+        case Ok(resume):
+            match fs.read("agents/010-resume-tailor/data/job.txt"):
+                case Ok(job):
+                    print(tailor(resume, job))
+                case Err(why):
+                    print(f"Could not read job: {why}")
+        case Err(why):
+            print(f"Could not read resume: {why}")
+
+test "tailor returns only the mocked truthful edits":
+    with mock analyze -> Ok(TailoringAdvice("Strong systems fit", ["Move reliability work first"], ["No Kubernetes evidence"])):
+        answer = tailor("Built reliable APIs", "Needs backend engineer")
+        assert "Move reliability work first" in answer
+        assert "No Kubernetes evidence" in answer

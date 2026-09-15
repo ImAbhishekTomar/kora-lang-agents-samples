@@ -1,0 +1,53 @@
+use fs
+use json
+
+type Issue:
+    id: str
+    title: str
+    body: str
+    component_hint: str
+
+type IssueSet:
+    issues: list[Issue]
+
+type IssueTriage:
+    severity: str
+    component: str
+    repro: list[str]
+    next_action: str
+
+agent triage_issue(issue: Issue) -> str:
+    budget: max_tokens = 2200, max_calls = 1
+    result: IssueTriage = analyze(issue, "Triage this software issue. Use severity low, medium, high, or critical. Provide a minimal reproduction and one next action.", model="gpt")
+    match result:
+        case Ok(t) if t.severity == "critical":
+            return f"{issue.id} | PAGE | {t.component} | {t.next_action}"
+        case Ok(t):
+            return f"{issue.id} | {t.severity} | {t.component} | {t.repro} | {t.next_action}"
+        case Uncertain(reason):
+            return f"{issue.id} | NEEDS INFO | {reason}"
+        case Exhausted(meter):
+            return f"{issue.id} | EXHAUSTED | {meter}"
+        case Failed(why):
+            return f"{issue.id} | FAILED | {why}"
+
+def main():
+    match fs.read("agents/011-issue-triage/data/issues.json"):
+        case Ok(text):
+            match json.parse(text, IssueSet):
+                case Ok(batch):
+                    with budget(max_tokens = 16000):
+                        results = parallel for issue in batch.issues:
+                            return triage_issue(issue)
+                    for result in results:
+                        print(result)
+                case Err(why):
+                    print(f"Invalid issues: {why}")
+        case Err(why):
+            print(f"Could not read issues: {why}")
+
+test "critical guard routes to paging":
+    issue = Issue("BUG-7", "Data loss", "Save deletes records", "storage")
+    with mock analyze -> Ok(IssueTriage("critical", "storage", ["save a record"], "disable writes and page storage")):
+        assert triage_issue(issue) == "BUG-7 | PAGE | storage | disable writes and page storage"
+

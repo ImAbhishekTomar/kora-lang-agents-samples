@@ -1,0 +1,43 @@
+# Kora project for the agent samples.
+
+[models]
+# Roles, not vendors. Each names its model exactly as the provider's docs do,
+# says where the request goes, and names the variable holding the key.
+default = { name = "openrouter/free", endpoint = "https://openrouter.ai/api/v1", api_key_env = "OPENROUTER_API_KEY", max_output_tokens = 8192 }
+vision = { name = "openrouter/free", endpoint = "https://openrouter.ai/api/v1", api_key_env = "OPENROUTER_API_KEY", max_output_tokens = 8192 }
+
+# The 100 numbered examples use this role explicitly. The key stays in the
+# process environment; no example reads it as program data.
+gpt = { name = "gpt-5.4-mini", api_key_env = "OPENAI_API_KEY", max_output_tokens = 4096 }
+
+timeout_secs = 900                # a model reading a page is slow
+max_retries = 2
+
+[dependencies.pdf_render]
+# Rendering a PDF page needs PDFium, which Kora deliberately does not link.
+# The package carries it in a helper process instead: `kora install` fetches
+# that helper for this platform only, and only because this project imports
+# the package. `helper` is the authority to run it; the package never opens a
+# file itself, so it is not granted `fs`.
+path = "../kora-lang/examples/lib/pdf"
+grants = { helper = true }
+
+[budget]
+program_max_tokens = 2_000_000
+warn_at = "80%"
+
+[budget.pricing]
+"openai:gpt-5.4-mini" = { per_1k_in = 0.00075, per_1k_out = 0.0045, currency = "USD" }
+
+# A few synthetic privacy examples deliberately demonstrate scoped release.
+# The source code must still use `declassify ... for openai:` at every release.
+[sinks]
+openai = { allow = ["classified", "internal"] }
+gpt = { allow = ["classified", "internal"] }
+
+[mcp.files]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "agents/065-faq-generator/data/docs"]
+
+[python]
+command = "python3"

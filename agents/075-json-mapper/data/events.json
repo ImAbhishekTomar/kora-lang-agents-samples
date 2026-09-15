@@ -1,0 +1,2 @@
+{"events":[{"event_id":"e-100","kind":"signup","occurred_at":"2026-09-10T10:00:00Z","user_id":"u-1","amount":0.0},{"event_id":"e-101","kind":"purchase","occurred_at":"2026-09-10T11:30:00Z","user_id":"","amount":49.0}]}
+

@@ -1,0 +1,55 @@
+use fs
+use json
+
+type Review:
+    summary: str @description("Grounded conclusion with no invented facts")
+    decision: str @description("approve, review, reject, or escalate")
+    evidence: list[str] @description("Evidence copied or paraphrased from the source")
+
+TASK = "combines KPIs, risks, and status into a board brief. Use only supplied evidence, cite it, and flag missing facts."
+
+agent investigate(source: str) -> str:
+    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+
+    with context(max_input_tokens = 8_000, reserve_output_tokens = 800):
+        result: str = analyze(source, TASK, model="gpt") stream
+    match result:
+        case Ok(brief):
+            return f"review: {brief}"
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(reason):
+            return f"failed: {reason}"
+
+def load_input() -> str:
+    combined = ""
+    match fs.read("agents/050-board-brief/data/metrics.json"):
+        case Ok(text):
+            combined = combined + "\n" + text
+        case Err(why):
+            combined = combined + f"\nread error: {why}"
+    match fs.read("agents/050-board-brief/data/status.md"):
+        case Ok(text):
+            combined = combined + "\n" + text
+        case Err(why):
+            combined = combined + f"\nread error: {why}"
+    return combined
+
+def main():
+    source = load_input()
+    output = investigate(source)
+    print(output)
+
+test "mocked model result is deterministic":
+    with mock analyze -> Ok("fixture-backed result"):
+        assert investigate("synthetic input") == "review: fixture-backed result"
+
+test "uncertain, exhausted, and failed are explicit":
+    with mock analyze -> Uncertain("needs evidence"):
+        assert investigate("x") == "uncertain: needs evidence"
+    with mock analyze -> Exhausted("tokens"):
+        assert investigate("x") == "exhausted: tokens"
+    with mock analyze -> Failed("provider unavailable"):
+        assert investigate("x") == "failed: provider unavailable"

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+cd "$repo_root"
+
+rg -o 'agents/[0-9]{3}-[a-z0-9-]+/' CATALOG.md | sed 's|/$||' | sort -u > "$tmp_dir/catalog"
+find agents -mindepth 1 -maxdepth 1 -type d | sort > "$tmp_dir/folders"
+
+if [[ "$(wc -l < "$tmp_dir/catalog" | tr -d ' ')" -ne 100 ]]; then
+  echo "CATALOG.md does not contain exactly 100 unique agent links." >&2
+  exit 1
+fi
+
+if ! diff -u "$tmp_dir/catalog" "$tmp_dir/folders"; then
+  echo "Catalog and folder names differ." >&2
+  exit 1
+fi
+
+while IFS= read -r folder; do
+  test -f "$folder/main.ko"
+  test -f "$folder/README.md"
+  rg -q 'analyze\(' "$folder/main.ko"
+  rg -q 'model="gpt"' "$folder/main.ko"
+  rg -q '^test ' "$folder/main.ko"
+  rg -q 'with mock analyze' "$folder/main.ko"
+done < "$tmp_dir/folders"
+
+echo "Catalog, folders, live calls, and mock-test contracts are complete."

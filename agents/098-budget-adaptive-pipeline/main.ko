@@ -1,0 +1,47 @@
+use fs
+
+type Extract:
+    facts: list[str]
+    gaps: list[str]
+
+type Critique:
+    risks: list[str]
+    strongest_fact: str
+
+type FinalBrief:
+    summary: str
+    facts: list[str]
+    risks: list[str]
+
+agent pipeline(report: str) -> str:
+    budget: max_tokens = 12000, max_calls = 3, max_steps = 5, max_seconds = 60
+    extraction: Extract = analyze(report, "Extract explicit facts and missing information. Do not infer causes.", model="gpt") else (why, kind):
+        return f"extraction {kind}: {why}"
+
+    with budget(max_tokens = 6500, max_calls = 2, max_seconds = 40):
+        critique: Critique = analyze(extraction, "Identify decision risks and the strongest grounded fact.", model="gpt") else (why, kind):
+            return f"partial facts={extraction.facts}\ncritique {kind}: {why}"
+
+        final: FinalBrief = analyze(
+            {"extraction": extraction, "critique": critique},
+            "Produce a concise brief. Preserve facts, risks, and gaps; do not hide partial work.",
+            model="gpt",
+        ) else (why, kind):
+            return f"partial facts={extraction.facts}\npartial risks={critique.risks}\nfinal {kind}: {why}"
+
+    return f"{final.summary}\nfacts={final.facts}\nrisks={final.risks}\nspent={tokens_spent()} tokens in {calls_spent()} calls"
+
+def main():
+    match fs.read("agents/098-budget-adaptive-pipeline/data/long_report.md"):
+        case Ok(report):
+            print(pipeline(report))
+        case Err(why):
+            print(f"cannot read report: {why}")
+
+test "the completed pipeline exposes facts and risks":
+    with mock analyze -> Ok(Extract(["pilot served 40 cases"], ["no control group"])):
+        with mock analyze -> Ok(Critique(["selection bias"], "40 cases were served")):
+            with mock analyze -> Ok(FinalBrief("Promising but inconclusive.", ["40 cases"], ["selection bias"])):
+                answer = pipeline("synthetic report")
+                assert "Promising" in answer
+                assert "selection bias" in answer

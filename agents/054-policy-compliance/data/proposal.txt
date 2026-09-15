@@ -1,0 +1,2 @@
+Deploy a routine database index change directly to production without peer review on Friday.
+

@@ -1,0 +1,55 @@
+use http
+
+type ResearchAnswer:
+    answer: str
+    sources: list[str]
+    caveats: list[str]
+
+tool search_books(topic: str) -> str:
+    "Search public Open Library metadata for books about a topic."
+    match http.get(f"https://openlibrary.org/search.json?q={topic}&limit=5"):
+        case Ok(response):
+            return response["body"]
+        case Err(why):
+            return f"Open Library unavailable: {why}"
+
+tool search_papers(topic: str) -> str:
+    "Search public Crossref metadata for papers about a topic."
+    match http.get(f"https://api.crossref.org/works?query={topic}&rows=5"):
+        case Ok(response):
+            return response["body"]
+        case Err(why):
+            return f"Crossref unavailable: {why}"
+
+agent research(question: str) -> str:
+    budget: max_tokens = 7000, max_calls = 4, max_steps = 6, max_seconds = 60
+    with context(max_input_tokens = 18000, reserve_output_tokens = 2200):
+        result: ResearchAnswer = analyze(
+            question,
+            "Use the public metadata tools before answering. Cite returned URLs or identifiers, never invented sources, and state caveats.",
+            model="gpt",
+            tools=[search_books, search_papers],
+        ) on tool_call(name, args):
+            print(f"research tool: {name}({args})")
+    match result:
+        case Ok(value):
+            return f"{value.answer}\nsources={value.sources}\ncaveats={value.caveats}"
+        case Uncertain(why) | Failed(why):
+            return f"research unavailable: {why}"
+        case Exhausted(meter):
+            return f"research exhausted: {meter}"
+
+def main():
+    print(research(input("Research question: ")))
+
+test "a researched answer keeps sources and caveats":
+    with mock analyze -> Ok(ResearchAnswer("Start with the survey.", ["doi:10.0000/example"], ["metadata only"])):
+        answer = research("agent evaluation")
+        assert "doi:10.0000/example" in answer
+        assert "metadata only" in answer
+
+test "refusal and provider failure share one explicit recovery arm":
+    with mock analyze -> Uncertain("question too broad"):
+        assert research("anything") == "research unavailable: question too broad"
+    with mock analyze -> Failed("provider offline"):
+        assert research("anything") == "research unavailable: provider offline"

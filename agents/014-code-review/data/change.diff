@@ -1,0 +1,12 @@
+diff --git a/cache.py b/cache.py
+index 1111111..2222222 100644
+--- a/cache.py
++++ b/cache.py
+@@ -5,4 +5,6 @@ def get_or_compute(key):
+     if key in cache:
+         return cache[key]
+-    return compute(key)
++    value = compute(key)
++    cache[key] = value
++    # value is not returned
+

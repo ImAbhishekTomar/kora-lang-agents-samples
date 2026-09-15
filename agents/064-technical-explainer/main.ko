@@ -1,0 +1,48 @@
+
+type ExplanationSet:
+    beginner: str
+    practitioner: str
+    expert: str
+    consistency_check: str
+
+TASK = "Explain the supplied technical concept accurately for a beginner, a working practitioner, and an expert. Use general technical knowledge, keep the core meaning consistent, and state any ambiguity in the consistency check."
+
+agent investigate(source: str) -> str:
+    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+
+    result: ExplanationSet = analyze(source, TASK, model="gpt")
+    match result:
+        case Ok(value):
+            return f"BEGINNER: {value.beginner}\nPRACTITIONER: {value.practitioner}\nEXPERT: {value.expert}\nCHECK: {value.consistency_check}"
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(reason):
+            return f"failed: {reason}"
+
+def load_input() -> str:
+    return input("Technical concept: ")
+
+def main():
+    source = load_input()
+    with budget(max_tokens = 8_000):
+        outputs = parallel for part in [source]:
+            with budget(max_tokens = 3_000):
+                return investigate(part)
+    for output in outputs:
+        print(output)
+
+test "mocked model result is deterministic":
+    explanation = ExplanationSet("simple", "practical", "precise", "consistent")
+    with mock analyze -> Ok(explanation):
+        assert "BEGINNER: simple" in investigate("synthetic input")
+        assert "EXPERT: precise" in investigate("synthetic input")
+
+test "uncertain, exhausted, and failed are explicit":
+    with mock analyze -> Uncertain("needs evidence"):
+        assert investigate("x") == "uncertain: needs evidence"
+    with mock analyze -> Exhausted("tokens"):
+        assert investigate("x") == "exhausted: tokens"
+    with mock analyze -> Failed("provider unavailable"):
+        assert investigate("x") == "failed: provider unavailable"

@@ -1,0 +1,61 @@
+use fs
+use re
+
+type Review:
+    summary: str @description("Grounded conclusion with no invented facts")
+    decision: str @description("approve, review, reject, or escalate")
+    evidence: list[str] @description("Evidence copied or paraphrased from the source")
+
+TASK = "identifies PII, proposes replacements, and checks meaning preservation. Use only supplied evidence, cite it, and flag missing facts."
+
+def has_placeholder(text: str) -> bool:
+    match re.matches("(?i)(redacted|example|placeholder)", text):
+        case Ok(found):
+            return found
+        case Err(_):
+            return False
+
+agent investigate(source: str) -> str:
+    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+
+    classified protected = source
+    declassify protected as approved for openai:
+        result: Review = analyze(approved, TASK, model="gpt")
+    match result:
+        case Ok(review):
+            safe_summary = redact(review.summary)
+            return f"{review.decision}: {safe_summary}"
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(reason):
+            return f"failed: {reason}"
+
+def load_input() -> str:
+    combined = ""
+    match fs.read("agents/051-pii-redactor/data/customer_note.txt"):
+        case Ok(text):
+            combined = combined + "\n" + text
+        case Err(why):
+            combined = combined + f"\nread error: {why}"
+    return combined
+
+def main():
+    source = load_input()
+    classified protected_preview = source
+    print(f"redacted source preview: {redact(protected_preview)}")
+    output = investigate(source)
+    print(output)
+
+test "mocked model result is deterministic":
+    with mock analyze -> Ok(Review("fixture-backed result", "review", ["synthetic source"])):
+        assert investigate("synthetic input") == "review: fixture-backed result"
+
+test "uncertain, exhausted, and failed are explicit":
+    with mock analyze -> Uncertain("needs evidence"):
+        assert investigate("x") == "uncertain: needs evidence"
+    with mock analyze -> Exhausted("tokens"):
+        assert investigate("x") == "exhausted: tokens"
+    with mock analyze -> Failed("provider unavailable"):
+        assert investigate("x") == "failed: provider unavailable"

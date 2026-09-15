@@ -1,0 +1,51 @@
+use fs
+use json
+
+type Message:
+    sender: str
+    subject: str
+    body: str
+
+type Inbox:
+    messages: list[Message]
+
+type Triage:
+    urgency: str
+    next_action: str
+    reason: str
+
+agent triage_message(message: Message) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    result: Triage = analyze(message, "Classify urgency as urgent, soon, or routine. Give one concrete next action and a short evidence-based reason.", model="gpt")
+    match result:
+        case Ok(t) if t.urgency == "urgent":
+            return f"URGENT | {message.subject} | {t.next_action} | {t.reason}"
+        case Ok(t):
+            return f"{t.urgency} | {message.subject} | {t.next_action} | {t.reason}"
+        case Uncertain(reason):
+            return f"UNKNOWN | {message.subject} | {reason}"
+        case Exhausted(meter):
+            return f"STOPPED | {message.subject} | {meter}"
+        case Failed(why):
+            return f"FAILED | {message.subject} | {why}"
+
+def main():
+    match fs.read("agents/002-inbox-triage/data/inbox.json"):
+        case Ok(text):
+            match json.parse(text, Inbox):
+                case Ok(inbox):
+                    with budget(max_tokens = 12000):
+                        rows = parallel for message in inbox.messages:
+                            return triage_message(message)
+                    for row in rows:
+                        print(row)
+                case Err(why):
+                    print(f"Invalid inbox data: {why}")
+        case Err(why):
+            print(f"Could not read inbox: {why}")
+
+test "urgent messages take the guarded arm":
+    message = Message("ops@example.test", "Production down", "Customers see errors")
+    with mock analyze -> Ok(Triage("urgent", "page on-call", "active outage")):
+        assert triage_message(message) == "URGENT | Production down | page on-call | active outage"
+

@@ -1,0 +1,56 @@
+use http
+use json
+
+URL = "https://api.frankfurter.app/2026-08-01..2026-09-01?from=EUR&to=USD"
+
+type Movement:
+    pair: str
+    start_rate: float
+    end_rate: float
+    percent_change: float
+    direction: str
+    volatility_note: str
+    disclaimer: str
+
+tool delta_percent(start: float, end: float) -> float:
+    "Calculate percent change in a quoted exchange rate."
+    if start == 0.0:
+        return 0.0
+    return ((end - start) / start) * 100.0
+
+agent explain(body: str) -> str:
+    budget: max_tokens = 4000, max_steps = 4
+    result: Movement = analyze(body, "Explain the historical EUR/USD movement using delta_percent. Describe the quote direction accurately and provide no forecast or financial advice.", model="gpt", tools=[delta_percent])
+    match result:
+        case Ok(r):
+            return f"{r.pair}: {r.start_rate} to {r.end_rate} ({r.percent_change}%) {r.direction} | {r.volatility_note} | {r.disclaimer}"
+        case Uncertain(why):
+            return f"UNCERTAIN MOVEMENT: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match http.get(URL):
+        case Ok(response):
+            body = response["body"]
+            match json.parse(body):
+                case Ok(doc):
+                    match json.get(doc, "rates"):
+                        case Ok(rates):
+                            if len(rates) < 2:
+                                print("not enough observations to describe movement")
+                            else:
+                                print(explain(body))
+                        case Err(why):
+                            print(f"Frankfurter schema changed: {why}")
+                case Err(why):
+                    print(f"invalid rate JSON: {why}")
+        case Err(why):
+            print(f"Frankfurter request failed: {why}")
+
+test "movement explanation is explicitly non-advisory":
+    with mock analyze -> Ok(Movement("EUR/USD", 1.10, 1.12, 1.82, "EUR strengthened in the quote", "modest movement", "Historical description, not financial advice.")):
+        assert "not financial advice" in explain("{}")
+

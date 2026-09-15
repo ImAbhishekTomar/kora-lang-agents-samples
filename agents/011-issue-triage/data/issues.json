@@ -1,0 +1,6 @@
+{"issues":[
+  {"id":"BUG-7","title":"Save deletes records","body":"After editing a customer and pressing Save, all addresses disappear.","component_hint":"storage"},
+  {"id":"BUG-8","title":"Button overlaps text","body":"At 320px width the submit button covers the terms link.","component_hint":"web"},
+  {"id":"BUG-9","title":"Intermittent timeout","body":"Report export times out for accounts with more than 50k rows.","component_hint":"reports"}
+]}
+

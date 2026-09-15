@@ -1,0 +1,6 @@
+service: checkout
+public: true
+tls_min: "1.0"
+debug: true
+admin_port: 9000
+

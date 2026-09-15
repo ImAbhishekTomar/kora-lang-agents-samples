@@ -1,0 +1,48 @@
+use http
+use json
+use time
+
+URL = "https://date.nager.at/api/v3/PublicHolidays/2026/US"
+
+type HolidayPlan:
+    country: str
+    year: int
+    long_weekend_options: list[str]
+    staffing_risks: list[str]
+    validation_note: str
+
+tool valid_iso_date(date: str) -> bool:
+    "Validate the basic YYYY-MM-DD shape before a date is used in a plan."
+    return len(date) == 10 and "-" in date
+
+agent plan(body: str) -> str:
+    budget: max_tokens = 4000, max_steps = 5
+    result: HolidayPlan = analyze({"holidays": body, "today": time.format(time.now(), "date")}, "Prepare a public-holiday planning brief. Use valid_iso_date on dates, distinguish national from local holidays, and do not infer company leave policy.", model="gpt", tools=[valid_iso_date])
+    match result:
+        case Ok(r):
+            return f"{r.country} {r.year} | options {r.long_weekend_options} | staffing {r.staffing_risks} | {r.validation_note}"
+        case Uncertain(why):
+            return f"UNCERTAIN PLAN: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match http.get(URL):
+        case Ok(response):
+            body = response["body"]
+            match json.parse(body):
+                case Ok(days):
+                    if len(days) == 0:
+                        print("Nager.Date returned no holidays")
+                    else:
+                        print(plan(body))
+                case Err(why):
+                    print(f"invalid holiday JSON: {why}")
+        case Err(why):
+            print(f"holiday request failed: {why}")
+
+test "planner refuses to invent leave policy":
+    with mock analyze -> Ok(HolidayPlan("India", 2026, ["Example option"], ["Verify regional coverage"], "Company leave policy is not in the API.")):
+        assert "not in the API" in plan("[]")

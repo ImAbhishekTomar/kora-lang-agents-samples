@@ -1,0 +1,2 @@
+Synthetic note: Customer [NAME] asked that email [EMAIL] be replaced with a stable customer identifier. Preserve that the customer requested a callback.
+

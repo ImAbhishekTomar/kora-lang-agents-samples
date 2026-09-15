@@ -1,0 +1,55 @@
+use fs
+use http
+use xml
+
+type Review:
+    summary: str @description("Grounded conclusion with no invented facts")
+    decision: str @description("approve, review, reject, or escalate")
+    evidence: list[str] @description("Source-grounded evidence items")
+
+TASK = "turns a public science feed into a sourced digest. Use only supplied facts, cite evidence, and flag missing support."
+
+agent investigate(source: str) -> str:
+    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+
+    result: str = analyze(source, TASK, model="gpt") stream
+    match result:
+        case Ok(digest):
+            return f"review: {digest}"
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(reason):
+            return f"failed: {reason}"
+
+def load_input() -> str:
+    match http.get("https://feeds.bbci.co.uk/news/science_and_environment/rss.xml"):
+        case Ok(response):
+            return response["body"]
+        case Err(why):
+            return f"feed error: {why}"
+
+def main():
+    source = load_input()
+    output = investigate(source)
+    print(output)
+
+test "mocked model result is deterministic":
+    with mock analyze -> Ok("fixture-backed result"):
+        assert investigate("synthetic input") == "review: fixture-backed result"
+
+test "uncertain, exhausted, and failed are explicit":
+    with mock analyze -> Uncertain("needs evidence"):
+        assert investigate("x") == "uncertain: needs evidence"
+    with mock analyze -> Exhausted("tokens"):
+        assert investigate("x") == "exhausted: tokens"
+    with mock analyze -> Failed("provider unavailable"):
+        assert investigate("x") == "failed: provider unavailable"
+
+test "safe XML parser accepts a minimal RSS document":
+    match xml.parse("<rss><channel><title>Science</title></channel></rss>"):
+        case Ok(_):
+            assert True
+        case Err(_):
+            assert False

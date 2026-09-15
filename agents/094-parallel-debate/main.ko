@@ -1,0 +1,53 @@
+type View:
+    role: str
+    position: str
+    evidence: list[str]
+    concern: str
+
+type Synthesis:
+    agreements: list[str]
+    conflicts: list[str]
+    next_test: str
+
+agent perspective(role: str, proposal: str) -> View:
+    budget: max_tokens = 2200, max_calls = 1
+    result: View = analyze(
+        {"role": role, "proposal": proposal},
+        "Analyze from the named role. Distinguish evidence from assumption and state one concern.",
+        model="gpt",
+    )
+    match result:
+        case Ok(view):
+            return view
+        case Uncertain(why):
+            return View(role, "uncertain", [], why)
+        case Exhausted(meter):
+            return View(role, "exhausted", [], meter)
+        case Failed(why):
+            return View(role, "failed", [], why)
+
+agent debate(proposal: str) -> str:
+    budget: max_tokens = 10000, max_calls = 4, max_seconds = 60
+    roles = ["advocate", "skeptic", "operator"]
+    views = parallel for role in roles:
+        return perspective(role, proposal)
+    result: Synthesis = analyze(views, "Synthesize agreements and real conflicts. Propose one cheap test that resolves the largest conflict.", model="gpt")
+    match result:
+        case Ok(value):
+            return f"agreements={value.agreements}\nconflicts={value.conflicts}\nnext test={value.next_test}"
+        case Uncertain(why):
+            return f"debate uncertain: {why}"
+        case Exhausted(meter):
+            return f"debate exhausted: {meter}"
+        case Failed(why):
+            return f"debate failed: {why}"
+
+def main():
+    print(debate(input("Proposal: ")))
+
+test "a model mock crosses the parallel worker boundary":
+    with mock analyze -> Ok(View("mock", "test first", ["small sample"], "selection bias")):
+        views = parallel for role in ["advocate", "skeptic", "operator"]:
+            return perspective(role, "pilot")
+        assert len(views) == 3
+        assert views[0].position == "test first"

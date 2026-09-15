@@ -1,0 +1,58 @@
+use http
+use json
+
+URL = "https://api.open-meteo.com/v1/forecast?latitude=28.6139&longitude=77.2090&daily=temperature_2m_max,precipitation_sum,wind_speed_10m_max&timezone=Asia%2FKolkata&forecast_days=7"
+
+type WeatherRisk:
+    period: str
+    heat: str
+    rain: str
+    wind: str
+    cautions: list[str]
+
+tool threshold(kind: str, value: float) -> str:
+    "Classify a weather value against transparent sample thresholds."
+    if kind == "heat" and value >= 40.0:
+        return "high heat"
+    if kind == "rain" and value >= 50.0:
+        return "heavy rain"
+    if kind == "wind" and value >= 50.0:
+        return "strong wind"
+    return "below sample caution threshold"
+
+agent assess(body: str) -> str:
+    budget: max_tokens = 4000, max_steps = 5
+    risk: WeatherRisk = analyze(body, "Create a seven-day weather risk briefing for Delhi. Use threshold for numeric classifications and keep forecasts distinct from observed conditions.", model="gpt", tools=[threshold])
+    match risk:
+        case Ok(r):
+            return f"{r.period} | heat {r.heat} | rain {r.rain} | wind {r.wind} | cautions {r.cautions}"
+        case Uncertain(why):
+            return f"UNCERTAIN FORECAST: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match http.get(URL):
+        case Ok(response):
+            body = response["body"]
+            match json.parse(body):
+                case Ok(doc):
+                    match json.get(doc, "daily.time"):
+                        case Ok(days):
+                            if len(days) == 0:
+                                print("forecast contains no days")
+                            else:
+                                print(assess(body))
+                        case Err(why):
+                            print(f"forecast schema changed: {why}")
+                case Err(why):
+                    print(f"invalid forecast JSON: {why}")
+        case Err(why):
+            print(f"Open-Meteo request failed: {why}")
+
+test "structured cautions remain visible":
+    with mock analyze -> Ok(WeatherRisk("next 7 days", "moderate", "low", "low", ["hydrate during afternoon heat"])):
+        assert "hydrate" in assess("{}")
+

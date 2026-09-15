@@ -1,0 +1,52 @@
+use http
+use json
+
+URLS = [
+    "https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=12&page=0",
+    "https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=12&page=1",
+]
+
+type ThemeMap:
+    page: int
+    themes: list[str]
+    story_links: list[str]
+    caveat: str
+
+agent map_page(page: int, body: str) -> str:
+    budget: max_tokens = 3500, max_steps = 2
+    mapped: ThemeMap = analyze({"page": page, "response": body}, "Map recurring themes in these recent Hacker News stories. Include source links and distinguish title signals from article contents.", model="gpt")
+    match mapped:
+        case Ok(m):
+            return f"page {m.page}: themes {m.themes} | links {m.story_links} | {m.caveat}"
+        case Uncertain(why):
+            return f"page {page}: UNCERTAIN - {why}"
+        case Exhausted(meter):
+            return f"page {page}: EXHAUSTED - {meter}"
+        case Failed(why):
+            return f"page {page}: FAILED - {why}"
+
+def reduce(parts: list[str]) -> str:
+    out = "HACKER NEWS TREND DIGEST\n"
+    for part in parts:
+        out += f"\n{part}\n"
+    return out
+
+def main():
+    pages = [0, 1]
+    parts = parallel for page in pages:
+        match http.get(URLS[page]):
+            case Ok(response):
+                body = response["body"]
+                match json.parse(body):
+                    case Ok(_):
+                        return map_page(page, body)
+                    case Err(why):
+                        return f"page {page}: invalid JSON - {why}"
+            case Err(why):
+                return f"page {page}: request failed - {why}"
+    print(reduce(parts))
+
+test "map-reduce output retains page provenance":
+    with mock analyze -> Ok(ThemeMap(0, ["databases"], ["https://news.ycombinator.com/item?id=1"], "Titles only")):
+        assert "page 0" in map_page(0, "{}")
+

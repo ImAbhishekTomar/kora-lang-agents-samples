@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+kora_bin="${KORA_BIN:-$repo_root/../kora-lang/target/debug/kora}"
+agent="${1:-agents/001-daily-planner/main.ko}"
+
+if [[ -f "$repo_root/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$repo_root/.env"
+  set +a
+fi
+
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  echo "OPENAI_API_KEY is not set. Export it or add it to the ignored .env file." >&2
+  exit 1
+fi
+
+cd "$repo_root"
+"$kora_bin" run --report "$agent"

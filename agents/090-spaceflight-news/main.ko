@@ -1,0 +1,58 @@
+use http
+use json
+
+URLS = [
+    "https://api.spaceflightnewsapi.net/v4/articles/?limit=10&offset=0",
+    "https://api.spaceflightnewsapi.net/v4/articles/?limit=10&offset=10",
+]
+
+type NewsPage:
+    stories: list[str]
+    source_links: list[str]
+    duplicate_keys: list[str]
+
+agent digest_page(body: str) -> str:
+    budget: max_tokens = 3500, max_steps = 2
+    page: NewsPage = analyze(body, "Produce a sourced spaceflight-news digest from this API page. Deduplicate by canonical URL and near-identical headline; do not imply article content beyond metadata summaries.", model="gpt")
+    match page:
+        case Ok(p):
+            return f"stories={p.stories}\nlinks={p.source_links}\nduplicate keys={p.duplicate_keys}"
+        case Uncertain(why):
+            return f"UNCERTAIN PAGE: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED PAGE: {meter}"
+        case Failed(why):
+            return f"FAILED PAGE: {why}"
+
+agent stream_overview(parts: list[str]) -> str:
+    budget: max_tokens = 3000, max_steps = 1
+    answer: str = analyze(parts, "Merge the page digests into a short sourced overview. Remove duplicate keys and preserve links.", model="gpt") on token(piece):
+        write(piece)
+    match answer:
+        case Ok(text):
+            return text
+        case Uncertain(why):
+            return f"UNCERTAIN OVERVIEW: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED OVERVIEW: {meter}"
+        case Failed(why):
+            return f"FAILED OVERVIEW: {why}"
+
+def main():
+    parts = parallel for url in URLS:
+        match http.get(url):
+            case Ok(response):
+                body = response["body"]
+                match json.parse(body):
+                    case Ok(_):
+                        return digest_page(body)
+                    case Err(why):
+                        return f"invalid API JSON: {why}"
+            case Err(why):
+                return f"API request failed: {why}"
+    print(stream_overview(parts))
+
+test "a typed page digest preserves source links":
+    with mock analyze -> Ok(NewsPage(["Synthetic launch story"], ["https://example.test/story"], [])):
+        assert "https://example.test/story" in digest_page("{}")
+

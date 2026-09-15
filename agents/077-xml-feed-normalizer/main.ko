@@ -1,0 +1,66 @@
+use fs
+use xml
+
+type NormalizedItem:
+    title: str
+    url: str
+    summary: str
+    warning: str
+
+agent normalize_item(raw: str) -> str:
+    budget: max_tokens = 3000, max_steps = 2
+    item: NormalizedItem = analyze(raw, "Normalize this XML item text into a title, URL, short summary, and malformed-data warning. Do not fabricate absent fields.", model="gpt")
+    match item:
+        case Ok(i):
+            return f"{i.title} | {i.url} | {i.summary} | warning: {i.warning}"
+        case Uncertain(why):
+            return f"UNCERTAIN ITEM: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED ITEM: {meter}"
+        case Failed(why):
+            return f"FAILED ITEM: {why}"
+
+def main():
+    match fs.read("agents/077-xml-feed-normalizer/data/feed.xml"):
+        case Ok(text):
+            match xml.parse(text):
+                case Ok(root):
+                    match xml.find_all(root, "channel.item"):
+                        case Ok(elements):
+                            raw_items = []
+                            for element in elements:
+                                match xml.text(element):
+                                    case Ok(raw):
+                                        append(raw_items, raw)
+                                    case Err(why):
+                                        append(raw_items, f"malformed: {why}")
+                            normalized = parallel for raw in raw_items:
+                                return normalize_item(raw)
+                            for item in normalized:
+                                print(item)
+                        case Err(why):
+                            print(f"feed path invalid: {why}")
+                case Err(why):
+                    print(f"XML rejected safely: {why}")
+        case Err(why):
+            print(f"cannot read feed: {why}")
+
+test "a malformed item can still normalize with a warning":
+    with mock analyze -> Ok(NormalizedItem("Release", "", "A release was announced", "missing link")):
+        assert "missing link" in normalize_item("Release A release was announced")
+
+test "XML find and attribute lookup preserve structure":
+    text = "<rss><channel><item id=\"one\"><title>Release</title></item></channel></rss>"
+    match xml.parse(text):
+        case Ok(root):
+            match xml.find(root, "channel.item"):
+                case Ok(item):
+                    match xml.get(item, "attrs.id"):
+                        case Ok(id):
+                            assert id == "one"
+                        case Err(why):
+                            assert False, why
+                case Err(why):
+                    assert False, why
+        case Err(why):
+            assert False, why

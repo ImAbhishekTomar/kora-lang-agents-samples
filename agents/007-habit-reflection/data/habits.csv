@@ -1,0 +1,6 @@
+date,sleep_hours,exercise_minutes,mood,completed
+2026-09-01,7.5,25,4,true
+2026-09-02,6.0,0,2,false
+2026-09-03,8.0,30,5,true
+2026-09-04,6.5,10,3,true
+2026-09-05,7.8,35,5,true

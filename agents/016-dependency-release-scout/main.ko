@@ -1,0 +1,52 @@
+use http
+use json
+use time
+
+type ReleaseRisk:
+    repository: str
+    newest_tag: str
+    risk: str
+    reason: str
+
+agent assess_release(payload: dict) -> str:
+    budget: max_tokens = 2400, max_calls = 1, max_seconds = 25
+    result: ReleaseRisk = analyze(payload, "Assess upgrade risk from this GitHub latest-release payload. Distinguish breaking, security, and routine changes.", model="gpt")
+    match result:
+        case Ok(risk):
+            return f"{risk.repository} {risk.newest_tag} | {risk.risk} | {risk.reason}"
+        case Uncertain(reason):
+            return f"PARTIAL uncertain release: {reason}"
+        case Exhausted(meter):
+            return f"PARTIAL budget exhausted: {meter}"
+        case Failed(why):
+            return f"PARTIAL provider failed: {why}"
+
+def fetch_release(url: str) -> str:
+    match http.get(url):
+        case Ok(response):
+            match json.parse(response["body"]):
+                case Ok(payload):
+                    return assess_release(payload)
+                case Err(why):
+                    return f"PARTIAL invalid GitHub JSON: {why}"
+        case Err(why):
+            return f"PARTIAL GitHub fetch failed: {why}"
+
+def main():
+    started = time.now()
+    urls = [
+        "https://api.github.com/repos/BurntSushi/ripgrep/releases/latest",
+        "https://api.github.com/repos/sharkdp/fd/releases/latest",
+    ]
+    with budget(max_tokens = 9000, max_seconds = 45):
+        reports = parallel for url in urls:
+            return fetch_release(url)
+    for report in reports:
+        print(report)
+    print(f"completed in {time.elapsed(started)} seconds")
+
+test "release risk remains usable as a partial result":
+    payload = {"tag_name": "v15.0.0", "body": "Breaking configuration changes"}
+    with mock analyze -> Ok(ReleaseRisk("ripgrep", "v15.0.0", "high", "major config change")):
+        assert "high" in assess_release(payload)
+

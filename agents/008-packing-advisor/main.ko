@@ -1,0 +1,46 @@
+use http
+use json
+
+type PackingList:
+    essentials: list[str]
+    weather_items: list[str]
+    warnings: list[str]
+
+tool temperature_band(celsius: float) -> str:
+    "Convert Celsius into a simple packing band."
+    if celsius < 10.0:
+        return "cold"
+    if celsius > 27.0:
+        return "hot"
+    return "mild"
+
+agent pack_for(weather: dict) -> str:
+    budget: max_tokens = 3200, max_calls = 4, max_steps = 4
+    result: PackingList = analyze(weather, "Build a compact packing list for a three-day Bengaluru trip. Use the weather tool when useful and surface weather risks.", model="gpt", tools=[temperature_band])
+    match result:
+        case Ok(plan):
+            return f"ESSENTIALS {plan.essentials}\nWEATHER {plan.weather_items}\nWARNINGS {plan.warnings}"
+        case Uncertain(reason):
+            return f"Packing advice uncertain: {reason}"
+        case Exhausted(meter):
+            return f"Packing advice exhausted: {meter}"
+        case Failed(why):
+            return f"Packing advice failed: {why}"
+
+def main():
+    url = "https://api.open-meteo.com/v1/forecast?latitude=12.9716&longitude=77.5946&current=temperature_2m,precipitation&timezone=Asia%2FKolkata"
+    match http.get(url):
+        case Ok(response):
+            match json.parse(response["body"]):
+                case Ok(weather):
+                    print(pack_for(weather))
+                case Err(why):
+                    print(f"Open-Meteo returned invalid JSON: {why}")
+        case Err(why):
+            print(f"Could not fetch Open-Meteo: {why}")
+
+test "packing result is typed and formatted":
+    with mock analyze -> Ok(PackingList(["passport"], ["umbrella"], ["heavy rain"])):
+        result = pack_for({"temperature_2m": 24.0})
+        assert "umbrella" in result
+        assert temperature_band(24.0) == "mild"

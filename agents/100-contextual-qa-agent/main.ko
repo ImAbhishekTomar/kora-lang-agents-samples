@@ -1,0 +1,55 @@
+use fs
+
+type GroundedAnswer:
+    answer: str
+    sources: list[str]
+    missing: list[str]
+
+tool read_product_guide(topic: str) -> str:
+    "Read the local product guide. The topic helps the model explain why it needs the file."
+    match fs.read("agents/100-contextual-qa-agent/data/knowledge/product.md"):
+        case Ok(text):
+            return f"Topic: {topic}\n{text}"
+        case Err(why):
+            return f"guide unavailable: {why}"
+
+tool read_runbook(topic: str) -> str:
+    "Read the local operations runbook."
+    match fs.read("agents/100-contextual-qa-agent/data/knowledge/runbook.md"):
+        case Ok(text):
+            return f"Topic: {topic}\n{text}"
+        case Err(why):
+            return f"runbook unavailable: {why}"
+
+agent answer(question: str) -> str:
+    budget: max_tokens = 5500, max_calls = 3, max_steps = 5
+    with context(max_input_tokens = 10000, reserve_output_tokens = 1600):
+        result: GroundedAnswer = analyze(
+            question,
+            "Answer only from the local knowledge tools. Cite filenames and list anything the files do not establish.",
+            model="gpt",
+            tools=[read_product_guide, read_runbook],
+        )
+    match result:
+        case Ok(value):
+            return f"{value.answer}\nsources={value.sources}\nmissing={value.missing}"
+        case Uncertain(why):
+            return f"needs a person: {why}"
+        case Exhausted(meter):
+            return f"Q&A exhausted: {meter}"
+        case Failed(why):
+            return f"Q&A failed: {why}"
+
+def main():
+    print("Ask about the product or runbook. Type exit to stop.")
+    while True:
+        question = input("> ")
+        if question in ["exit", "bye", "close"]:
+            break
+        print(answer(question))
+
+test "the Q&A result preserves citations and gaps":
+    with mock analyze -> Ok(GroundedAnswer("Exports are JSON.", ["product.md"], ["retention period"])):
+        response = answer("What format is export?")
+        assert "product.md" in response
+        assert "retention period" in response

@@ -1,0 +1,12 @@
+.venv/
+.kora/
+__pycache__/
+output/pages/
+.DS_Store
+.env
+agents/*/output/
+!agents/099-durable-approval-pipeline/output/
+agents/099-durable-approval-pipeline/output/*
+!agents/099-durable-approval-pipeline/output/.gitkeep
+agents/*/cassettes/
+*.db

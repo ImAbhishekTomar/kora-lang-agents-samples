@@ -1,0 +1,51 @@
+use http
+use json
+
+PRIMARY = "https://api.restcountries.com/countries/v5/names.common/Canada?api-key=rc_live_demo"
+FALLBACK = "https://api.restcountries.com/countries/v5/codes.alpha_2/CA?api-key=rc_live_demo"
+
+type CountryProfile:
+    official_name: str
+    capital: str
+    region: str
+    languages: list[str]
+    currencies: list[str]
+    population: int
+    source_limits: str
+
+agent profile(body: str) -> str:
+    budget: max_tokens = 3500, max_steps = 2
+    result: CountryProfile = analyze(body, "Build a grounded country profile from the REST Countries v5 demo JSON. Profile the object actually returned, note the demo-data limitation, and do not add history, politics, or travel claims not represented by the source.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"{r.official_name} | capital {r.capital} | {r.region} | languages {r.languages} | currencies {r.currencies} | population {r.population} | {r.source_limits}"
+        case Uncertain(why):
+            return f"UNCERTAIN PROFILE: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def fetch(url: str):
+    match http.get(url):
+        case Ok(response):
+            return response["body"]
+        case Err(_):
+            return None
+
+def main():
+    body = fetch(PRIMARY)
+    if body == None:
+        body = fetch(FALLBACK)
+    if body == None:
+        print("both REST Countries alternatives failed")
+    else:
+        match json.parse(body):
+            case Ok(_):
+                print(profile(body))
+            case Err(why):
+                print(f"invalid country JSON: {why}")
+
+test "profiles state their source limits":
+    with mock analyze -> Ok(CountryProfile("Republic of India", "New Delhi", "Asia", ["Hindi", "English"], ["INR"], 1400000000, "Metadata snapshot only")):
+        assert "Metadata snapshot only" in profile("[]")

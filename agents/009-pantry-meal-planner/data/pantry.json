@@ -1,0 +1,6 @@
+{
+  "ingredients": ["rice", "lentils", "tomato", "spinach", "eggs"],
+  "avoid": ["peanuts"],
+  "max_minutes": 30
+}
+

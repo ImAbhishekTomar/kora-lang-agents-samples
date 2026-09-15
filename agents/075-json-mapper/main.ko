@@ -1,0 +1,55 @@
+use fs
+use json
+
+type Event:
+    event_id: str
+    kind: str
+    occurred_at: str
+    user_id: str
+    amount: float
+
+type EventBatch:
+    events: list[Event]
+
+type DataMap:
+    dictionary: list[str]
+    quality_warnings: list[str]
+    recommended_keys: list[str]
+
+agent map_structure(batch: EventBatch) -> str:
+    budget: max_tokens = 4500, max_steps = 2
+    result: DataMap = analyze(batch, "Create a compact data dictionary and concrete quality warnings. Treat empty strings and zero amounts as values to inspect, not automatically as errors.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"dictionary={r.dictionary}\nwarnings={r.quality_warnings}\nkeys={r.recommended_keys}"
+        case Uncertain(why):
+            return f"UNCERTAIN: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match fs.read("agents/075-json-mapper/data/events.json"):
+        case Ok(text):
+            match json.parse(text, EventBatch):
+                case Ok(batch):
+                    print(map_structure(batch))
+                case Err(why):
+                    print(f"typed JSON validation failed: {why}")
+        case Err(why):
+            print(f"cannot read events: {why}")
+
+test "typed mappings return explicit quality warnings":
+    batch = EventBatch([Event("e1", "purchase", "2026-09-10T10:00:00Z", "u1", 20.0)])
+    with mock analyze -> Ok(DataMap(["event_id: unique string"], ["none"], ["event_id"])):
+        assert "event_id" in map_structure(batch)
+
+test "typed event batches serialize without losing fields":
+    batch = EventBatch([Event("e1", "purchase", "2026-09-10T10:00:00Z", "u1", 20.0)])
+    match json.stringify(batch):
+        case Ok(text):
+            assert "event_id" in text
+            assert "purchase" in text
+        case Err(why):
+            assert False, why

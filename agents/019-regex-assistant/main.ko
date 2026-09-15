@@ -1,0 +1,75 @@
+use re
+
+type RegexDesign:
+    pattern: str
+    examples: list[str]
+    non_matches: list[str]
+    explanation: str
+
+tool regex_matches(pattern: str, text: str) -> bool:
+    "Safely test a candidate regex against one string."
+    match re.matches(pattern, text):
+        case Ok(hit):
+            return hit
+        case Err(_):
+            return False
+
+agent design_regex(request: str) -> str:
+    budget: max_tokens = 3800, max_calls = 4, max_steps = 6
+    seed = ["INV-2026-001", "INV-2026-999", "invoice-1", "INV-26-001"]
+    result: RegexDesign = analyze({"request": request, "seed": seed}, "Design a linear-time compatible regex and examples. Use the matching tool to validate cases. Avoid lookaround and backreferences.", model="gpt", tools=[regex_matches]) on tool_call(name, args):
+        print(f"validating with {name}({args})")
+    match result:
+        case Ok(design):
+            return f"PATTERN {design.pattern}\nMATCH {design.examples}\nREJECT {design.non_matches}\n{design.explanation}"
+        case Uncertain(reason):
+            return f"Regex request uncertain: {reason}"
+        case Exhausted(meter):
+            return f"Regex design exhausted: {meter}"
+        case Failed(why):
+            return f"Regex design failed: {why}"
+
+def main():
+    print("Describe the strings to match:")
+    print(design_regex(input("> ")))
+
+def regex_workbench(text: str) -> str:
+    first = ""
+    matches = []
+    replaced = text
+    parts = []
+    match re.find("[A-Z]+", text):
+        case Ok(value):
+            first = value
+        case Err(_):
+            pass
+    match re.find_all("[0-9]+", text):
+        case Ok(values):
+            matches = values
+        case Err(_):
+            pass
+    match re.replace("-+", text, ":"):
+        case Ok(value):
+            replaced = value
+        case Err(_):
+            pass
+    match re.split("-+", text):
+        case Ok(values):
+            parts = values
+        case Err(_):
+            pass
+    return f"first={first}; numbers={matches}; replaced={replaced}; parts={parts}"
+
+test "regex assistant returns validated examples":
+    design = RegexDesign("^INV-[0-9]{4}-[0-9]{3}$", ["INV-2026-001"], ["invoice-1"], "fixed invoice format")
+    with mock analyze -> Ok(design):
+        answer = design_regex("invoice ids")
+        assert "^INV-" in answer
+        assert regex_matches("^INV-[0-9]{4}-[0-9]{3}$", "INV-2026-001")
+
+test "all safe regex primitives return values":
+    result = regex_workbench("INV-2026-001")
+    assert "first=INV" in result
+    assert "2026" in result
+    assert "001" in result
+    assert "INV:2026:001" in result

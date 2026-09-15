@@ -1,0 +1,7 @@
+environment: staging
+workers: 24
+timeout_seconds: 90
+cache:
+  enabled: true
+  ttl_seconds: 600
+

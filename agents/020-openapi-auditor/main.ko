@@ -1,0 +1,48 @@
+use fs
+use json
+use "./lib/scoring.ko" as scoring
+
+type EndpointAudit:
+    route: str
+    undocumented_errors: list[str]
+    vague_descriptions: list[str]
+    schema_drift: list[str]
+    score: int
+
+tool quality_score(error_count: int, vague_count: int, drift_count: int) -> int:
+    "Compute a deterministic documentation score."
+    return scoring.score(error_count, vague_count, drift_count)
+
+agent audit_endpoint(endpoint: dict) -> str:
+    budget: max_tokens = 2600, max_calls = 4, max_steps = 4
+    result: EndpointAudit = analyze(endpoint, "Audit this OpenAPI endpoint for undocumented errors, vague descriptions, and schema drift. Use the score tool.", model="gpt", tools=[quality_score])
+    match result:
+        case Ok(audit):
+            return f"{audit.route} score={audit.score} errors={audit.undocumented_errors} vague={audit.vague_descriptions} drift={audit.schema_drift}"
+        case Uncertain(reason):
+            return f"endpoint uncertain: {reason}"
+        case Exhausted(meter):
+            return f"endpoint exhausted: {meter}"
+        case Failed(why):
+            return f"endpoint failed: {why}"
+
+def main():
+    match fs.read("agents/020-openapi-auditor/data/openapi.json"):
+        case Ok(text):
+            match json.parse(text):
+                case Ok(spec):
+                    with budget(max_tokens = 10000):
+                        reports = parallel for endpoint in spec["endpoints"]:
+                            return audit_endpoint(endpoint)
+                    for report in reports:
+                        print(report)
+                case Err(why):
+                    print(f"Invalid OpenAPI fixture: {why}")
+        case Err(why):
+            print(f"Could not read OpenAPI fixture: {why}")
+
+test "evaluator score and typed audit agree":
+    audit = EndpointAudit("POST /widgets", ["409 missing"], ["does thing"], [], 78)
+    with mock analyze -> Ok(audit):
+        assert "score=78" in audit_endpoint({"route": "POST /widgets"})
+        assert quality_score(1, 1, 0) == 78

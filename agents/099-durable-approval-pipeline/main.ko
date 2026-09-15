@@ -1,0 +1,42 @@
+use fs
+use notes
+
+type ApprovalDraft:
+    plan: str
+    risks: list[str]
+    rollback: str
+
+agent approval_pipeline(request: str) -> str:
+    budget: max_tokens = 4500, max_calls = 1
+    draft: ApprovalDraft = analyze(
+        request,
+        "Draft a reversible plan with explicit risks and rollback. Do not claim approval.",
+        model="gpt",
+    ) else (why, kind):
+        return f"draft {kind}: {why}"
+
+    notes.write("draft_plan", draft.plan)
+    classified approval_context = {"plan": draft.plan, "risks": draft.risks, "rollback": draft.rollback}
+    decision = ask_human("Approve this synthetic plan?", redact(approval_context))
+    notes.write("decision", decision)
+    if decision != "yes":
+        return f"not approved: {decision}"
+
+    match fs.write("agents/099-durable-approval-pipeline/output/approved-plan.txt", draft.plan):
+        case Ok(_):
+            return "approved plan written exactly once across durable resume"
+        case Err(why):
+            return f"approved but write failed: {why}"
+
+def main():
+    print(approval_pipeline(input("Plan request: ")))
+
+test "the paid draft step is typed and mockable":
+    with mock analyze -> Ok(ApprovalDraft("Run a one-week canary.", ["small sample"], "disable the flag")):
+        result: ApprovalDraft = analyze("synthetic", "test only", model="gpt")
+        match result:
+            case Ok(draft):
+                assert "canary" in draft.plan
+                assert draft.rollback == "disable the flag"
+            case _:
+                assert False

@@ -1,0 +1,37 @@
+use fs
+
+type FormReading:
+    applicant: str
+    request_type: str
+    reference: str
+    unreadable_regions: list[str]
+
+agent read_form(path: str, allow_human: bool) -> str:
+    budget: max_tokens = 6000, max_steps = 2
+    match fs.image(path):
+        case Ok(image):
+            reading: FormReading = analyze({"form": image, "instruction": "preserve blank fields"}, "Read visible fields from this synthetic form and list every unreadable region. Never guess handwriting.", model="gpt")
+            match reading:
+                case Ok(r):
+                    if len(r.unreadable_regions) > 0:
+                        return f"HUMAN REVIEW: unreadable regions {r.unreadable_regions}"
+                    return f"{r.applicant} | {r.request_type} | {r.reference}"
+                case Uncertain(why):
+                    if allow_human:
+                        answer = ask_human("Please inspect the unreadable form region", why)
+                        return f"human response: {answer}"
+                    return f"HUMAN REVIEW: {why}"
+                case Exhausted(meter):
+                    return f"EXHAUSTED: {meter}"
+                case Failed(why):
+                    return f"FAILED: {why}"
+        case Err(why):
+            return f"UNREADABLE FILE: {why}"
+
+def main():
+    print(read_form("agents/072-form-image-reader/data/form.jpg", True))
+
+test "uncertain handwriting escalates without guessing":
+    with mock analyze -> Uncertain("signature cannot be read"):
+        assert read_form("agents/072-form-image-reader/data/form.jpg", False) == "HUMAN REVIEW: signature cannot be read"
+

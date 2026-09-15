@@ -1,0 +1,40 @@
+use fs
+
+type AltText:
+    concise: str
+    extended: str
+    visible_text: list[str]
+    uncertainty: str
+
+tool accessibility_score(concise: str, extended: str) -> str:
+    "Evaluate basic alt-text length and redundancy guardrails."
+    if len(concise) > 180:
+        return "concise description is too long"
+    if concise == extended:
+        return "extended description adds no detail"
+    return "passes deterministic length and redundancy checks"
+
+agent describe(path: str) -> str:
+    budget: max_tokens = 6500, max_steps = 4
+    match fs.image(path):
+        case Ok(image):
+            alt: AltText = analyze(image, "Write concise and extended accessible descriptions for this dashboard screenshot. Include important visible text and chart trends, not decorative styling. Use accessibility_score before finalizing.", model="gpt", tools=[accessibility_score])
+            match alt:
+                case Ok(a):
+                    return f"Concise: {a.concise}\nExtended: {a.extended}\nVisible text: {a.visible_text}\nUncertainty: {a.uncertainty}"
+                case Uncertain(why):
+                    return f"HUMAN REVIEW: {why}"
+                case Exhausted(meter):
+                    return f"EXHAUSTED: {meter}"
+                case Failed(why):
+                    return f"FAILED: {why}"
+        case Err(why):
+            return f"UNREADABLE IMAGE: {why}"
+
+def main():
+    print(describe("agents/079-accessible-alt-text/data/dashboard.png"))
+
+test "alt text separates concise and extended forms":
+    with mock analyze -> Ok(AltText("Sales dashboard with an upward revenue chart.", "Revenue rises from 80 to 125 across four quarters while support tickets fall.", ["Revenue", "125"], "none")):
+        assert "Extended:" in describe("agents/079-accessible-alt-text/data/dashboard.png")
+

@@ -1,0 +1,44 @@
+use fs
+
+type Location:
+    file: str
+    line: int
+
+type Finding:
+    category: str @pattern("^(correctness|security|tests|maintenance)$")
+    severity: str
+    location: Location
+    problem: str
+    fix: str
+
+type Review:
+    summary: str
+    findings: list[Finding]
+
+agent review_patch(patch: str) -> str:
+    budget: max_tokens = 5200, max_calls = 1
+    result: Review = analyze(patch, "Review this patch for correctness, security, missing tests, and maintainability. Report only actionable findings tied to changed lines.", model="gpt")
+    match result:
+        case Ok(review):
+            return f"{review.summary}\nFINDINGS {review.findings}"
+        case Uncertain(reason):
+            return f"REVIEW UNCERTAIN: {reason}"
+        case Exhausted(meter):
+            return f"REVIEW EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"REVIEW FAILED: {why}"
+
+def main():
+    match fs.read("agents/014-code-review/data/change.diff"):
+        case Ok(patch):
+            print(review_patch(patch))
+        case Err(why):
+            print(f"Could not read patch: {why}")
+
+test "nested finding schema is retained":
+    finding = Finding("correctness", "high", Location("cache.py", 8), "miss path returns None", "return computed value")
+    with mock analyze -> Ok(Review("One blocking issue", [finding])):
+        answer = review_patch("+ cache[key] = compute()")
+        assert "One blocking issue" in answer
+        assert "miss path returns None" in answer
+

@@ -1,0 +1,70 @@
+use fs
+use csv
+use python statistics as stats
+
+type Metric:
+    day: str
+    requests: int
+    errors: int
+    latency_ms: float
+
+type AnomalyReport:
+    meaningful: bool
+    summary: str
+    evidence: list[str]
+    caution: str
+
+tool error_rate(requests: int, errors: int) -> float:
+    "Calculate errors divided by requests; return zero when requests is zero."
+    if requests == 0:
+        return 0.0
+    return errors / requests
+
+agent narrate(rows: list[Metric], average_latency: float) -> str:
+    budget: max_tokens = 4500, max_steps = 5
+    result: AnomalyReport = analyze({"rows": rows, "average_latency": average_latency}, "Explain only meaningful anomalies. Use the tool for error-rate calculations, cite dates and values, and distinguish observation from cause.", model="gpt", tools=[error_rate])
+    match result:
+        case Ok(r):
+            if not r.meaningful:
+                return "No meaningful anomaly found."
+            return f"{r.summary} | evidence {r.evidence} | caution {r.caution}"
+        case Uncertain(why):
+            return f"UNCERTAIN: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match fs.read("agents/074-csv-anomaly-narrator/data/metrics.csv"):
+        case Ok(text):
+            match csv.parse(text, Metric):
+                case Ok(rows):
+                    latencies = []
+                    for row in rows:
+                        append(latencies, row.latency_ms)
+                    match stats.mean(latencies):
+                        case Ok(average):
+                            print(narrate(rows, average))
+                        case Err(why):
+                            print(f"Python statistics failed: {why}")
+                case Err(why):
+                    print(f"invalid metrics CSV: {why}")
+        case Err(why):
+            print(f"cannot read metrics: {why}")
+
+test "an anomaly keeps its evidence and caution":
+    rows = [Metric("2026-09-14", 1000, 80, 900.0)]
+    with mock analyze -> Ok(AnomalyReport(True, "Errors spiked", ["8% error rate"], "Cause is unknown")):
+        assert "Cause is unknown" in narrate(rows, 900.0)
+
+test "generic CSV rows can be written again":
+    match csv.rows("name,value\nlatency,900\n"):
+        case Ok(rows):
+            match csv.write(rows):
+                case Ok(text):
+                    assert "latency" in text
+                case Err(why):
+                    assert False, why
+        case Err(why):
+            assert False, why

@@ -1,0 +1,4 @@
+{"id":"T-1","subject":"Unknown charges","body":"I see charges after an unknown login.","customer_tier":"pro"}
+{"id":"T-2","subject":"Export slow","body":"CSV export takes ten minutes.","customer_tier":"standard"}
+{"id":"T-3","subject":"Update address","body":"Please explain where to update billing address.","customer_tier":"standard"}
+

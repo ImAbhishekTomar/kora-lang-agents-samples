@@ -1,0 +1,49 @@
+use fs
+use json
+
+type Citation:
+    raw: str
+
+type CitationBatch:
+    citations: list[Citation]
+
+type NormalizedCitation:
+    authors: list[str]
+    year: str @pattern("^([0-9]{4}|unknown)$")
+    title: str
+    venue: str
+    doi: str
+    uncertain_fields: list[str]
+
+agent normalize(citation: Citation) -> str:
+    budget: max_tokens = 1700, max_calls = 1
+    result: NormalizedCitation = analyze(citation, "Normalize this citation without inventing missing fields. Put ambiguous mappings in uncertain_fields and use unknown where needed.", model="gpt")
+    match result:
+        case Ok(item):
+            return f"{item.authors} ({item.year}). {item.title}. {item.venue}. {item.doi} | uncertain={item.uncertain_fields}"
+        case Uncertain(reason):
+            return f"UNMAPPED {citation.raw}: {reason}"
+        case Exhausted(meter):
+            return f"EXHAUSTED {citation.raw}: {meter}"
+        case Failed(why):
+            return f"FAILED {citation.raw}: {why}"
+
+def main():
+    match fs.read("agents/026-citation-normalizer/data/citations.json"):
+        case Ok(text):
+            match json.parse(text, CitationBatch):
+                case Ok(batch):
+                    for citation in batch.citations:
+                        print(normalize(citation))
+                case Err(why):
+                    print(f"Invalid citations: {why}")
+        case Err(why):
+            print(f"Could not read citations: {why}")
+
+test "uncertain mappings remain visible":
+    result = NormalizedCitation(["Rao, A."], "unknown", "Agent Notes", "", "", ["year", "venue"])
+    with mock analyze -> Ok(result):
+        answer = normalize(Citation("Rao. Agent Notes."))
+        assert "uncertain=" in answer
+        assert "year" in answer
+

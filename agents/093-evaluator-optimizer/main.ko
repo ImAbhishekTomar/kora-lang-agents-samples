@@ -1,0 +1,44 @@
+use fs
+
+type Draft:
+    text: str
+
+type Verdict:
+    status: str @pattern("^(pass|revise)$")
+    feedback: str
+
+agent optimize(request: str, rubric: str) -> str:
+    budget: max_tokens = 9000, max_calls = 6, max_steps = 8
+    current = ""
+    round = 0
+    while round < 3:
+        draft: Draft = analyze(
+            {"request": request, "rubric": rubric, "previous": current},
+            "Write or revise the answer. Follow every rubric item and keep unsupported claims out.",
+            model="gpt",
+        ) else (why, kind):
+            return f"draft {kind}: {why}"
+        verdict: Verdict = analyze(
+            {"draft": draft.text, "rubric": rubric},
+            "Evaluate the draft strictly. Return pass only when every rubric item is satisfied.",
+            model="gpt",
+        ) else (why, kind):
+            return f"evaluation {kind}: {why}"
+        current = draft.text
+        if verdict.status == "pass":
+            return current
+        current = f"{current}\nReviewer feedback: {verdict.feedback}"
+        round += 1
+    return f"best effort after {round} rounds: {current}"
+
+def main():
+    match fs.read("agents/093-evaluator-optimizer/data/rubric.md"):
+        case Ok(rubric):
+            print(optimize(input("Writing request: "), rubric))
+        case Err(why):
+            print(f"cannot read rubric: {why}")
+
+test "a passing first draft stops the loop":
+    with mock analyze -> Ok(Draft("A grounded two-sentence answer.")):
+        with mock analyze -> Ok(Verdict("pass", "")):
+            assert optimize("explain the pilot", "two sentences") == "A grounded two-sentence answer."

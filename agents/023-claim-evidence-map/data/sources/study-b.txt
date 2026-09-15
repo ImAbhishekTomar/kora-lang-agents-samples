@@ -1,0 +1,2 @@
+Synthetic source B contradicts part of the claim: a 2-second timeout caused 8% of slow successful requests to fail.
+

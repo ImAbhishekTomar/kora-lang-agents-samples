@@ -1,0 +1,4 @@
+- token = "REDACTED_EXAMPLE_TOKEN"
++ token = env.get("SERVICE_TOKEN")
++ log("credential loaded")
+

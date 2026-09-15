@@ -1,0 +1,80 @@
+use fs
+use http
+use xml
+
+type PaperDigest:
+    title: str
+    relevance: str
+    contribution: str
+    caveat: str
+
+agent digest_title(title: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    result: PaperDigest = analyze(title, "Explain why this arXiv paper title may be relevant to reliable AI agents. Do not infer experimental results from the title.", model="gpt")
+    match result:
+        case Ok(paper):
+            return f"{paper.title} | {paper.relevance} | {paper.contribution} | caveat: {paper.caveat}"
+        case Uncertain(reason):
+            return f"paper uncertain: {reason}"
+        case Exhausted(meter):
+            return f"paper exhausted: {meter}"
+        case Failed(why):
+            return f"paper failed: {why}"
+
+def titles_from_feed(body: str) -> list[str]:
+    match xml.parse(body):
+        case Ok(feed):
+            match xml.find_all(feed, "entry.title"):
+                case Ok(nodes):
+                    titles = []
+                    for node in nodes:
+                        match xml.text(node):
+                            case Ok(title):
+                                append(titles, title)
+                            case Err(_):
+                                pass
+                    return titles
+                case Err(_):
+                    return []
+        case Err(_):
+            return []
+
+def digest_feed(body: str):
+    titles = titles_from_feed(body)
+    if len(titles) == 0:
+        print("arXiv feed has no readable titles")
+        return
+    with budget(max_tokens = 8000):
+        reports = parallel for title in titles:
+            return digest_title(title)
+    for report in reports:
+        print(report)
+
+def fallback_feed(reason: str):
+    print(f"arXiv live endpoint unavailable; using checked-in fallback: {reason}")
+    match fs.read("agents/021-arxiv-digest/data/arxiv_fallback.xml"):
+        case Ok(body):
+            digest_feed(body)
+        case Err(why):
+            print(f"Could not read arXiv fallback: {why}")
+
+def main():
+    url = "https://export.arxiv.org/api/query?search_query=all%3Aagent%20reliability&start=0&max_results=3"
+    match http.get(url):
+        case Ok(response):
+            if response["body"] == "":
+                fallback_feed("empty response")
+            else:
+                digest_feed(response["body"])
+        case Err(why):
+            fallback_feed(why)
+
+test "paper digest refuses to invent results":
+    paper = PaperDigest("Reliable Agents", "directly studies reliability", "unknown from title alone", "read the abstract")
+    with mock analyze -> Ok(paper):
+        answer = digest_title("Reliable Agents")
+        assert "unknown from title alone" in answer
+
+test "fallback Atom feed exposes titles":
+    body = "<feed><entry><title>Reliable Tool-Using Agents</title></entry></feed>"
+    assert titles_from_feed(body) == ["Reliable Tool-Using Agents"]

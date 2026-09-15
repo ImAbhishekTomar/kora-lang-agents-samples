@@ -1,0 +1,52 @@
+use fs
+use json
+
+type Translation:
+    key: str
+    source: str
+    target: str
+
+type Bundle:
+    locale: str
+    strings: list[Translation]
+
+type Review:
+    verdict: str
+    meaning: str
+    tone: str
+    placeholder_issue: str
+    layout_risk: str
+
+agent review_string(item: Translation) -> str:
+    budget: max_tokens = 3000, max_steps = 2
+    result: Review = analyze(item, "Review the translation for meaning, tone, preserved {placeholders}, and likely layout expansion. Ground every finding in the supplied pair.", model="gpt")
+    match result:
+        case Ok(r):
+            return f"{item.key}: {r.verdict} | {r.meaning} | {r.tone} | {r.placeholder_issue} | {r.layout_risk}"
+        case Uncertain(why):
+            return f"{item.key}: HUMAN REVIEW - {why}"
+        case Exhausted(meter):
+            return f"{item.key}: EXHAUSTED - {meter}"
+        case Failed(why):
+            return f"{item.key}: FAILED - {why}"
+
+def main():
+    match fs.read("agents/068-localization-review/data/strings.json"):
+        case Ok(text):
+            match json.parse(text, Bundle):
+                case Ok(bundle):
+                    with budget(max_tokens = 12000):
+                        lines = parallel for item in bundle.strings:
+                            return review_string(item)
+                    for line in lines:
+                        print(line)
+                case Err(why):
+                    print(f"invalid localization bundle: {why}")
+        case Err(why):
+            print(f"cannot read localization bundle: {why}")
+
+test "a placeholder-safe translation passes through the typed review":
+    item = Translation("welcome", "Welcome, {name}", "Bienvenue, {name}")
+    with mock analyze -> Ok(Review("pass", "equivalent", "warm", "none", "low")):
+        assert "welcome: pass" in review_string(item)
+

@@ -1,0 +1,291 @@
+# A folder of invoice PDFs in, one JSON record per invoice out.
+#
+# Not every PDF needs a vision model. Half of this dataset carries a text
+# layer, and reading that is faster, cheaper, and exact -- a rendered page is
+# thousands of tokens of pixels for text the document already spells out. So
+# each invoice is routed rather than treated the same:
+#
+#   pdf.info says has_text_layer  ->  pdf.pages, read by the text model
+#   it does not                   ->  pdf_render's images, read by the vision model
+#
+# Nothing is written to disk that is not an answer. When pages do have to be
+# drawn, that happens inside the `pdf_render` package's helper process, so the
+# C++ renderer is nowhere near this program.
+#
+#   kora install vision-extract-agent/extract.ko         # the helper, once
+#   kora run --record vision-extract-agent/extract.ko    # calls the model
+#   kora run --replay vision-extract-agent/extract.ko    # free, deterministic
+#
+# `INVOICES` reads only the first few, for trying something without waiting
+# for the whole folder:
+#
+#   INVOICES=1 kora run --record vision-extract-agent/extract.ko
+#
+# `model="vision"` names a role; kora.toml decides which model fills it.
+
+use fs
+use re
+use json
+use time
+use env
+use pdf
+use pkg pdf_render as render
+
+PDF_DIR = "datasets/invoices"
+OUT_DIR = "output"
+DPI = 150
+MAX_PAGES = 30
+
+# How many invoices are read at once. `parallel for` runs real threads, and
+# each branch is a separate call to the same local model, so this is really a
+# question of how much the machine has: two 3B vision calls fit alongside a
+# desktop, six 7B ones do not. Raise it against a hosted model.
+BATCH = 2
+
+type Money:
+    currency_code: str @description("ISO 4217 code, e.g. GBP. Empty when absent.")
+    amount: float
+
+type Address:
+    street: str
+    city: str
+    state: str
+    postal_code: str
+    country: str
+
+type Item:
+    product_code: str
+    description: str
+    quantity: float
+    tax: Money
+    unit_price: Money
+    total: Money
+
+type Signature:
+    signatory: str @description("Name next to the signature. Empty when unsigned.")
+    date: str @description("ISO date YYYY-MM-DD, or empty.")
+    has_written_signature: bool
+
+type Invoice:
+    customer_name: str
+    customer_tax_id: str
+    customer_address: Address
+    shipping_address: Address
+    purchase_order: str
+    invoice_id: str
+    invoice_date: str @description("ISO date YYYY-MM-DD, or empty.")
+    due_date: str @description("ISO date YYYY-MM-DD, or empty.")
+    vendor_name: str
+    vendor_address: Address
+    vendor_tax_id: str
+    remittance_address: Address
+    subtotal: Money
+    total_discount: Money
+    total_tax: Money
+    invoice_total: Money
+    payment_term: str
+    items: list[Item]
+    customer_signature: Signature
+
+# What the model is asked for. Kora has no optional type yet, so a field the
+# invoice does not carry comes back as "" or 0.0 rather than as null.
+#
+# The two instructions differ in one paragraph: what the model is looking at.
+# Everything about the *answer* is shared, so the two paths cannot drift into
+# filling the same type two different ways.
+RULES = "The vendor is whoever issued this invoice -- the name in the letterhead or logo at the top, and the party to be paid. The customer is whoever is being billed, usually addressed below it. Never leave `vendor_name` empty when a name appears at the top of the document. Fill every field from what is printed and never invent a value. A field the document does not print is an empty string, or 0.0 for an amount: that is the expected answer for a missing field, not a reason to decline. Never judge whether the document is complete, and never answer with an explanation or a refusal -- answer with the JSON object every time. Dates are ISO YYYY-MM-DD. Amounts are numbers without currency symbols or thousands separators, each with its own ISO 4217 currency code. `items` is one entry per line of the line-item table, in the order printed."
+
+SEEING = f"Read this invoice. The images are the pages of one document, in order, and some of them are terms, returns forms, or continuation sheets rather than the invoice itself -- read the invoice from whichever pages carry it and ignore the others. {RULES}"
+
+READING = f"Read this invoice. The text is the pages of one document, in order, under a heading per page, and some pages are terms, returns forms, or continuation sheets rather than the invoice itself -- read the invoice from whichever pages carry it and ignore the others. {RULES}"
+
+type Result:
+    invoice: str
+    status: str
+    detail: str
+    route: str
+    items: int
+
+# One invoice: the PDF in, a JSON file in `output/` out.
+#
+# `else (why, kind)` keeps the failure path flat while keeping *which* failure
+# it was -- the model declined, the budget ran out, the provider broke -- so
+# the report at the end can say which without four levels of `match`.
+agent extract(pdf_path: str) -> Result:
+    budget: max_tokens = 60000
+
+    name = stem(pdf_path)
+
+    # Which way this document has to be read. Asked of the document, not
+    # guessed from its name or its size.
+    match pdf.info(pdf_path):
+        case Ok(facts):
+            if facts["has_text_layer"]:
+                return from_text(name, pdf_path, facts["page_count"])
+            return from_pictures(name, pdf_path, facts["page_count"])
+        case Err(why):
+            return Result(name, "unreadable", why, "-", 0)
+
+# The cheap path: the document already spells out its own text.
+def from_text(name: str, pdf_path: str, page_count: int) -> Result:
+    match pdf.pages(pdf_path):
+        case Ok(pages):
+            print(f"    {name}: reading {page_count} pages of text ...")
+
+            # Page boundaries are kept, so the model can be told which page a
+            # line came from -- and so a continuation sheet can be recognised
+            # as one.
+            numbered = {}
+            number = 1
+            for page in pages:
+                numbered[f"page {number}"] = page
+                number += 1
+
+            record: Invoice = analyze(numbered, READING) else (why, kind):
+                return Result(name, kind, why, "text", 0)
+            return save(name, record, "text")
+        case Err(why):
+            return Result(name, "unreadable", why, "text", 0)
+
+# The expensive path: the pages are pictures, so they have to be looked at.
+def from_pictures(name: str, pdf_path: str, page_count: int) -> Result:
+    # The program opens the file. The package is handed bytes and never a
+    # path, which is why its grant in kora.toml is `helper` and not `fs`.
+    match fs.bytes(pdf_path):
+        case Ok(document):
+            match render.try_pages(document, DPI, MAX_PAGES):
+                case Ok(pages):
+                    if len(pages) == 0:
+                        return Result(name, "unreadable", f"no pages in {pdf_path}", "vision", 0)
+
+                    print(f"    {name}: looking at {len(pages)} pages ...")
+
+                    # Images may sit anywhere in the data argument; they are
+                    # sent in the order they appear, with an `<image>` marker
+                    # left in place.
+                    record: Invoice = analyze({"pages": pages}, SEEING, model="vision") else (why, kind):
+                        return Result(name, kind, why, "vision", 0)
+                    return save(name, record, "vision")
+                case Err(why):
+                    return Result(name, "unreadable", why, "vision", 0)
+        case Err(why):
+            return Result(name, "unreadable", why, "vision", 0)
+
+# The output file mirrors the shape of `datasets/invoices/invoice_1.json`:
+# the source filename, then the record under one key.
+def save(name: str, record: Invoice, route: str) -> Result:
+    document = {"fname": f"{name}.pdf", "extracted": record}
+
+    match json.stringify(document):
+        case Ok(text):
+            match fs.write(f"{OUT_DIR}/{name}.json", text):
+                case Ok(_):
+                    return Result(name, "ok", f"{OUT_DIR}/{name}.json", route, len(record.items))
+                case Err(why):
+                    return Result(name, "unwritable", why, route, len(record.items))
+        case Err(why):
+            return Result(name, "unwritable", why, route, len(record.items))
+
+# "datasets/invoices/invoice_1.pdf" -> "invoice_1".
+def stem(path: str) -> str:
+    match re.find("[^/]+$", path):
+        case Ok(tail):
+            match re.replace("\\.pdf$", tail, ""):
+                case Ok(name):
+                    return name
+                case Err(_):
+                    return tail
+        case Err(_):
+            return path
+
+def main():
+    started = time.now()
+
+    # No rendering step here at all. Each invoice decides for itself whether
+    # it needs one, inside the agent that reads it, and any pages it does
+    # need exist in memory only.
+    match fs.glob(f"{PDF_DIR}/*.pdf"):
+        case Ok(found):
+            documents = take(found, 0, wanted(len(found)))
+            if len(documents) < len(found):
+                print(f"reading {len(documents)} of {len(found)} invoices (INVOICES), {BATCH} at a time\n")
+            else:
+                print(f"reading {len(documents)} invoices, {BATCH} at a time\n")
+
+            results = []
+            with budget(max_tokens = 400000):
+                start = 0
+                while start < len(documents):
+                    batch = take(documents, start, BATCH)
+                    start += len(batch)
+
+                    print(f"  batch {start - len(batch) + 1}-{start} of {len(documents)}:")
+
+                    # Real threads: the whole batch is in flight at once, and
+                    # results come back in input order.
+                    done = parallel for document in batch:
+                        return extract(document)
+
+                    for row in done:
+                        append(results, row)
+                        print(f"    {row.status}  {row.invoice}  ({row.route})  {row.items} items  {row.detail}")
+
+                    print(f"    {len(results)}/{len(documents)} done, {tokens_spent()} tokens, {time.elapsed(started)}s elapsed\n")
+
+            report(results, started)
+        case Err(why):
+            print(f"could not list {PDF_DIR}: {why}")
+
+# The last thing on screen: what landed, what did not, and what it cost.
+def report(results: list[Result], started: int):
+    written = 0
+    for row in results:
+        if row.status == "ok":
+            written += 1
+
+    read = 0
+    looked_at = 0
+    for row in results:
+        if row.route == "text":
+            read += 1
+        if row.route == "vision":
+            looked_at += 1
+
+    print(f"{written}/{len(results)} invoices written to {OUT_DIR}/")
+    print(f"{read} read as text, {looked_at} looked at as pages")
+
+    if written < len(results):
+        print("\nnot written:")
+        for row in results:
+            if row.status != "ok":
+                print(f"  {row.invoice}  {row.status}: {row.detail}")
+
+    print(f"\nspent {tokens_spent()} tokens across {calls_spent()} calls in {time.elapsed(started)}s")
+
+# How many invoices to read: `INVOICES` when it is set to a positive number,
+# and everything otherwise. A value that is not a number is ignored rather
+# than crashing the run -- `int()` refuses "banana", and an environment
+# variable is exactly where a typo like that comes from.
+def wanted(available: int) -> int:
+    match env.get("INVOICES"):
+        case Ok(value):
+            match re.matches("^[0-9]+$", value):
+                case Ok(is_number):
+                    if is_number:
+                        asked = int(value)
+                        if asked > 0 and asked < available:
+                            return asked
+                    return available
+                case Err(_):
+                    return available
+        case Err(_):
+            return available
+
+# `xs[start:start + size]`, written out: Kora slices strings, not lists.
+def take(xs: list[str], start: int, size: int) -> list[str]:
+    chunk = []
+    index = start
+    while index < len(xs) and len(chunk) < size:
+        append(chunk, xs[index])
+        index += 1
+    return chunk

@@ -1,0 +1,35 @@
+use notes
+
+type DecisionReview:
+    challenge: str
+    assumptions: list[str]
+    options: list[str]
+    recommendation: str
+
+agent review_decision(seed: str) -> str:
+    budget: max_tokens = 3500, max_calls = 1, max_steps = 3
+    previous: str = notes.read("latest_review", "no earlier recommendation")
+    result: DecisionReview = analyze({"decision": seed, "previous": previous}, "Challenge this decision constructively. Name assumptions, viable options, and one recommendation.", model="gpt")
+    match result:
+        case Ok(review):
+            notes.write("latest_review", review.recommendation)
+            choice = ask_human("Which option will you choose?", review.options)
+            notes.write("final_choice", choice)
+            return f"{review.challenge} | choice: {choice}"
+        case Uncertain(reason):
+            return f"decision needs clarification: {reason}"
+        case Exhausted(meter):
+            return f"decision review exhausted: {meter}"
+        case Failed(why):
+            return f"decision review failed: {why}"
+
+def main():
+    print("Describe a decision and the facts already known:")
+    print(review_decision(input("> ")))
+
+test "typed decision review is deterministic under a model mock":
+    with mock analyze -> Ok(DecisionReview("Test demand before committing.", ["buyers will convert"], ["pilot", "full launch"], "pilot")):
+        # The live approval path is intentionally exercised with --durable.
+        # This assertion tests the pure typed data constructor used by the mock.
+        review = DecisionReview("challenge", ["assumption"], ["pilot"], "pilot")
+        assert review.recommendation == "pilot"

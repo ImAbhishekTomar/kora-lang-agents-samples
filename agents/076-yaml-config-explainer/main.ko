@@ -1,0 +1,72 @@
+use fs
+use yaml
+
+type Cache:
+    enabled: bool
+    ttl_seconds: int
+
+type AppConfig:
+    environment: str
+    workers: int
+    timeout_seconds: int
+    cache: Cache
+
+type Explanation:
+    effective_behavior: list[str]
+    risky_interactions: list[str]
+    operator_mistakes: list[str]
+
+tool safe_ratio(workers: int, timeout_seconds: int) -> str:
+    "Validate a worker and timeout combination using deterministic guardrails."
+    if workers > 16 and timeout_seconds > 60:
+        return "high concurrency plus long timeout can retain many stuck requests"
+    return "combination is within the sample guardrail"
+
+agent explain(config: AppConfig) -> str:
+    budget: max_tokens = 4000, max_steps = 4
+    result: Explanation = analyze(config, "Explain defaults and interactions for an operator. Use safe_ratio to validate concurrency claims; do not invent undocumented defaults.", model="gpt", tools=[safe_ratio])
+    match result:
+        case Ok(r):
+            return f"behavior={r.effective_behavior}\nrisks={r.risky_interactions}\nmistakes={r.operator_mistakes}"
+        case Uncertain(why):
+            return f"UNCERTAIN: {why}"
+        case Exhausted(meter):
+            return f"EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"FAILED: {why}"
+
+def main():
+    match fs.read("agents/076-yaml-config-explainer/data/app.yaml"):
+        case Ok(text):
+            match yaml.parse(text, AppConfig):
+                case Ok(config):
+                    if config.workers < 1 or config.timeout_seconds < 1:
+                        print("guard rejected non-positive workers or timeout")
+                    else:
+                        print(explain(config))
+                case Err(why):
+                    print(f"invalid YAML config: {why}")
+        case Err(why):
+            print(f"cannot read config: {why}")
+
+test "safe config gets a typed explanation":
+    config = AppConfig("staging", 4, 30, Cache(True, 300))
+    with mock analyze -> Ok(Explanation(["four workers"], ["cached data lasts five minutes"], ["assuming production settings"])):
+        assert "four workers" in explain(config)
+
+test "YAML path lookup and serialization are fallible values":
+    text = "environment: staging\nworkers: 4\ntimeout_seconds: 30\ncache:\n  enabled: true\n  ttl_seconds: 300\n"
+    match yaml.parse(text):
+        case Ok(value):
+            match yaml.get(value, "cache.ttl_seconds"):
+                case Ok(ttl):
+                    assert ttl == 300
+                case Err(why):
+                    assert False, why
+            match yaml.stringify(value):
+                case Ok(rendered):
+                    assert "environment" in rendered
+                case Err(why):
+                    assert False, why
+        case Err(why):
+            assert False, why

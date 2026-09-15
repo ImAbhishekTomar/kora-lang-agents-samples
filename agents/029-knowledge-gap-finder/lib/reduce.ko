@@ -1,0 +1,6 @@
+def merge(parts: list[str]) -> str:
+    output = "CORPUS SYNTHESIS"
+    for part in parts:
+        output = output + "\n\n" + part
+    return output
+

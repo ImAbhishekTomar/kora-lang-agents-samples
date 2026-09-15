@@ -1,0 +1,54 @@
+use fs
+
+type EvidenceMap:
+    claim: str
+    supports: list[str]
+    contradicts: list[str]
+    missing: list[str]
+
+tool stance_label(statement: str) -> str:
+    "Label a synthetic statement using explicit cue words."
+    if "contradicts" in statement:
+        return "contradicts"
+    if "supports" in statement:
+        return "supports"
+    return "unknown"
+
+agent map_evidence(material: dict) -> str:
+    budget: max_tokens = 3000, max_calls = 4, max_steps = 4
+    classified corpus = material
+    declassify corpus as released for openai:
+        result: EvidenceMap = analyze(released, "Map evidence to the article claim as support, contradiction, or missing. Quote no more than a short identifying phrase. Use the stance tool only as a cue, not proof.", model="gpt", tools=[stance_label])
+    match result:
+        case Ok(mapping):
+            return f"CLAIM {mapping.claim}\nSUPPORTS {mapping.supports}\nCONTRADICTS {mapping.contradicts}\nMISSING {mapping.missing}"
+        case Uncertain(reason):
+            return f"Evidence map uncertain: {reason}"
+        case Exhausted(meter):
+            return f"Evidence map exhausted: {meter}"
+        case Failed(why):
+            return f"Evidence map failed: {why}"
+
+def main():
+    match fs.read("agents/023-claim-evidence-map/data/article.md"):
+        case Ok(article):
+            match fs.glob("agents/023-claim-evidence-map/data/sources/*.txt"):
+                case Ok(paths):
+                    sources = parallel for path in paths:
+                        match fs.read(path):
+                            case Ok(text):
+                                return text
+                            case Err(why):
+                                return f"unreadable source: {why}"
+                    print(map_evidence({"article": article, "sources": sources}))
+                case Err(why):
+                    print(f"Could not list sources: {why}")
+        case Err(why):
+            print(f"Could not read article: {why}")
+
+test "mapping keeps contradictions separate":
+    mapping = EvidenceMap("timeouts reduce hangs", ["study A"], ["study B"], ["mobile evidence"])
+    with mock analyze -> Ok(mapping):
+        answer = map_evidence({"article": "claim", "sources": ["A", "B"]})
+        assert "study B" in answer
+        assert "MISSING" in answer

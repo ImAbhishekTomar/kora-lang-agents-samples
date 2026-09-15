@@ -1,0 +1,5 @@
+{"endpoints":[
+  {"route":"POST /widgets","description":"Does widget things","responses":{"201":"created","400":"bad request"},"implementation_errors":[400,409]},
+  {"route":"GET /widgets/{id}","description":"Fetch a widget","responses":{"200":"widget","404":"not found"},"observed_schema":{"id":"string","name":"string"}}
+]}
+

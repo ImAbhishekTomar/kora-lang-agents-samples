@@ -1,0 +1,43 @@
+use fs
+
+type LinkSuggestion:
+    source: str
+    related_topics: list[str]
+    reason: str
+
+agent link_note(note: str) -> str:
+    budget: max_tokens = 2200, max_calls = 1
+    result: LinkSuggestion = analyze(note, "Identify the note's main topic and useful conceptual cross-links. Return only links supported by the note.", model="gpt")
+    match result:
+        case Ok(link):
+            return f"{link.source} -> {link.related_topics}: {link.reason}"
+        case Uncertain(reason):
+            return f"unlinked: {reason}"
+        case Exhausted(meter):
+            return f"unlinked: exhausted {meter}"
+        case Failed(why):
+            return f"unlinked: provider failure {why}"
+
+def read_and_link(path: str) -> str:
+    match fs.read(path):
+        case Ok(note):
+            return link_note(note)
+        case Err(why):
+            return f"unreadable {path}: {why}"
+
+def main():
+    match fs.glob("agents/004-note-linker/data/notes/*.md"):
+        case Ok(paths):
+            with budget(max_tokens = 10000):
+                links = parallel for path in paths:
+                    return read_and_link(path)
+            for link in links:
+                print(link)
+        case Err(why):
+            print(f"Could not list notes: {why}")
+
+test "a note becomes a stable link suggestion":
+    with mock analyze -> Ok(LinkSuggestion("Caching", ["idempotency", "durable replay"], "all avoid duplicate work")):
+        result = link_note("# Caching\nReuse prior work.")
+        assert "durable replay" in result
+

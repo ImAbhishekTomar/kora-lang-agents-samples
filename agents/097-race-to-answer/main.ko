@@ -1,0 +1,47 @@
+type Candidate:
+    answer: str
+    satisfactory: bool
+    reason: str
+
+agent solve(strategy: str, task: str) -> str:
+    budget: max_tokens = 2200, max_calls = 1, max_seconds = 25
+    result: Candidate = analyze(
+        {"strategy": strategy, "task": task},
+        "Solve with the named strategy. Mark satisfactory only when the answer is complete and checkable.",
+        model="gpt",
+    )
+    match result:
+        case Ok(candidate) if candidate.satisfactory:
+            return candidate.answer
+        case Ok(_):
+            return ""
+        case Uncertain(_):
+            return ""
+        case Exhausted(_):
+            return ""
+        case Failed(_):
+            return ""
+
+agent race(task: str) -> str:
+    budget: max_tokens = 9000, max_calls = 4, max_seconds = 30
+    answer = parallel for strategy in ["direct", "work backward", "check by example"] first:
+        candidate = solve(strategy, task)
+        if candidate != "":
+            return candidate
+    if answer == None:
+        return "no strategy produced a satisfactory answer"
+    return answer
+
+def main():
+    print(race(input("Reasoning task: ")))
+
+test "the race chooses the earliest input that answers":
+    with mock analyze -> Ok(Candidate("verified answer", True, "checked")):
+        assert race("synthetic task") == "verified answer"
+
+test "break with a value stops a collecting fan-out":
+    found = parallel for n in [1, 2, 3, 4, 5]:
+        if n == 3:
+            break n
+        return 0
+    assert sum(found) >= 3

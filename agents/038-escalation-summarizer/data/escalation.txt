@@ -1,0 +1,2 @@
+09:10 UTC checkout errors rose. 09:18 on-call disabled a new rule. 09:24 recovery confirmed. Decision needed: re-enable after regression test.
+

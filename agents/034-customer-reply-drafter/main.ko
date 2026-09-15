@@ -1,0 +1,40 @@
+use fs
+use json
+
+type Thread:
+    customer_name: str
+    messages: list[str]
+    verified_facts: list[str]
+
+agent draft_reply(thread: Thread) -> str:
+    budget: max_tokens = 2800, max_calls = 1
+    classified private_thread = thread
+    declassify private_thread as released for openai:
+        reply: str = analyze(released, "Draft an accurate, empathetic customer reply. Use only verified facts, state the next action, and do not promise a resolution date.", model="gpt") stream
+    match reply:
+        case Ok(text):
+            return text
+        case Uncertain(reason):
+            return f"DRAFT NEEDS HUMAN: {reason}"
+        case Exhausted(meter):
+            return f"DRAFT EXHAUSTED: {meter}"
+        case Failed(why):
+            return f"DRAFT FAILED after any visible partial text: {why}"
+
+def main():
+    match fs.read("agents/034-customer-reply-drafter/data/thread.json"):
+        case Ok(text):
+            match json.parse(text, Thread):
+                case Ok(thread):
+                    print(draft_reply(thread))
+                case Err(why):
+                    print(f"Invalid thread JSON: {why}")
+        case Err(why):
+            print(f"Could not read thread: {why}")
+
+test "reply uses verified facts":
+    thread = Thread("Sam", ["Export failed"], ["Engineering reproduced the export error"])
+    with mock analyze -> Ok("Hi Sam, I’m sorry the export failed. Engineering reproduced the issue and is investigating."):
+        answer = draft_reply(thread)
+        assert "Engineering reproduced" in answer
+        assert "resolution date" not in answer

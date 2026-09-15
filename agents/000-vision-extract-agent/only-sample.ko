@@ -1,0 +1,30 @@
+use pdf
+use pkg pdf_render as render
+
+type Bill:
+    amount: float
+    date: str
+    description: str
+
+def Agent():
+    # Load the PDF file
+    pdf_file = load_pdf("invoice.pdf")
+
+    extracted_texts = []
+    for page in pdf_file.pages:
+        extracted_text = analyze(page.base64_content, {"role":"system","content": "extract data from invoice"})
+        extracted_texts.append(extracted_text)
+
+    # Parse the extracted text to find the bill information
+    amount = parse_amount(extracted_texts[0])
+    date = parse_date(extracted_texts[0])
+    description = parse_description(extracted_texts[0])
+
+    # Create a Bill object with the extracted information
+    bill = Bill(amount=amount, date=date, description=description)
+
+    return bill
+
+def main():
+    bill = Agent()
+    print(bill)

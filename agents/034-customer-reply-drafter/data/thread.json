@@ -1,0 +1,6 @@
+{
+  "customer_name":"Sam",
+  "messages":["My invoice export failed twice this morning. I need it for month-end close."],
+  "verified_facts":["Support reproduced the export error.","Engineering is investigating.","No resolution date has been confirmed."]
+}
+

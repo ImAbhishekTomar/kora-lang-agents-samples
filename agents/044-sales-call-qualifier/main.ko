@@ -1,0 +1,51 @@
+use fs
+
+type Review:
+    summary: str @description("Factual, concise result")
+    decision: str @description("approve, review, reject, or escalate")
+    evidence: list[str] @description("Short source-grounded evidence items")
+
+TASK = "extracts needs, authority, timing, risks, and next steps. Use only the supplied source, cite evidence, and say what is missing."
+
+agent investigate(source: str) -> str:
+    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+
+    classified protected = source
+    declassify protected as approved for openai:
+        result: str = analyze(approved, TASK, model="gpt") stream
+    match result:
+        case Ok(qualification):
+            return f"review: {qualification}"
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(reason):
+            return f"failed: {reason}"
+
+def load_input() -> str:
+    combined = ""
+    match fs.read("agents/044-sales-call-qualifier/data/sales_call.txt"):
+        case Ok(text):
+            combined = combined + "\n" + text
+        case Err(why):
+            combined = combined + f"\nread error: {why}"
+    return combined
+
+def main():
+    source = load_input()
+    output = investigate(source)
+    print(output)
+
+test "mocked model result is rendered deterministically":
+    with mock analyze -> Ok("fixture-backed result"):
+        output = investigate("synthetic input")
+        assert output == "review: fixture-backed result", f"got: {output}"
+
+test "all non-success outcomes remain values":
+    with mock analyze -> Uncertain("needs evidence"):
+        assert investigate("x") == "uncertain: needs evidence"
+    with mock analyze -> Exhausted("tokens"):
+        assert investigate("x") == "exhausted: tokens"
+    with mock analyze -> Failed("provider unavailable"):
+        assert investigate("x") == "failed: provider unavailable"

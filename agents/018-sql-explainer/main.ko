@@ -1,0 +1,62 @@
+use fs
+use re
+use sql
+
+type QueryExplanation:
+    purpose: str
+    performance_traps: list[str]
+    validation_steps: list[str]
+
+agent explain_query(query: str) -> str:
+    budget: max_tokens = 3300, max_calls = 1
+    result: QueryExplanation = analyze(query, "Explain this SQL query, identify performance traps, and list safe validation steps. Do not execute it.", model="gpt")
+    match result:
+        case Ok(explanation) if len(explanation.performance_traps) > 0:
+            return f"PURPOSE {explanation.purpose}\nTRAPS {explanation.performance_traps}\nVALIDATE {explanation.validation_steps}"
+        case Ok(explanation):
+            return f"PURPOSE {explanation.purpose}\nNo obvious traps.\nVALIDATE {explanation.validation_steps}"
+        case Uncertain(reason):
+            return f"SQL explanation uncertain: {reason}"
+        case Exhausted(meter):
+            return f"SQL explanation exhausted: {meter}"
+        case Failed(why):
+            return f"SQL explanation failed: {why}"
+
+def has_select_star(query: str) -> bool:
+    match re.matches("(?is).*select\\s+\\*.*", query):
+        case Ok(hit):
+            return hit
+        case Err(_):
+            return False
+
+def local_query_context() -> str:
+    db = "agents/018-sql-explainer/data/query-context.db"
+    match sql.execute(db, "create table if not exists examples (id integer primary key, note text)"):
+        case Err(why):
+            return f"local SQL setup failed: {why}"
+        case Ok(_):
+            pass
+    match sql.execute(db, "insert or replace into examples values (?, ?)", [1, "SELECT * can read unnecessary columns"]):
+        case Err(why):
+            return f"local SQL seed failed: {why}"
+        case Ok(_):
+            pass
+    match sql.query(db, "select note from examples where id = ?", [1]):
+        case Ok(rows):
+            return f"local bound-parameter example: {rows}"
+        case Err(why):
+            return f"local SQL query failed: {why}"
+
+def main():
+    match fs.read("agents/018-sql-explainer/data/query.sql"):
+        case Ok(query):
+            print(f"static select-star check: {has_select_star(query)}")
+            print(local_query_context())
+            print(explain_query(query))
+        case Err(why):
+            print(f"Could not read query: {why}")
+
+test "performance findings take the guarded match arm":
+    explanation = QueryExplanation("list active orders", ["full scan"], ["run EXPLAIN"])
+    with mock analyze -> Ok(explanation):
+        assert "TRAPS" in explain_query("select * from orders")

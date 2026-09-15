@@ -1,0 +1,41 @@
+use fs
+
+type Action:
+    owner: str @description("Person explicitly assigned to the action")
+    due_date: str @description("Date exactly as stated, or unknown")
+    task: str
+
+type MeetingReport:
+    actions: list[Action]
+    decisions: list[str]
+    open_questions: list[str]
+
+agent extract_meeting(transcript: str) -> MeetingReport:
+    budget: max_tokens = 4500, max_calls = 1
+    report: MeetingReport = analyze(transcript, "Extract only explicit action owners and dates, decisions, and unresolved questions. Do not invent assignments.", model="gpt") else (why, kind):
+        print(f"meeting extraction {kind}: {why}")
+        return MeetingReport([], [], [f"manual review required: {why}"])
+    return report
+
+def summarize(report: MeetingReport) -> str:
+    return f"actions={len(report.actions)}, decisions={len(report.decisions)}, open_questions={len(report.open_questions)}"
+
+def main():
+    match fs.read("agents/003-meeting-actions/data/meeting.txt"):
+        case Ok(text):
+            print(summarize(extract_meeting(text)))
+        case Err(why):
+            print(f"Could not read meeting: {why}")
+
+test "nested typed actions survive extraction":
+    expected = MeetingReport([Action("Mira", "2026-09-18", "send rollout plan")], ["ship Friday"], ["Who owns support training?"])
+    with mock analyze -> Ok(expected):
+        report = extract_meeting("Mira will send the plan.")
+        assert report.actions[0].owner == "Mira"
+        assert summarize(report) == "actions=1, decisions=1, open_questions=1"
+
+test "all model outcomes are handled by the else binding":
+    with mock analyze -> Failed("offline"):
+        report = extract_meeting("text")
+        assert "manual review required" in report.open_questions[0]
+

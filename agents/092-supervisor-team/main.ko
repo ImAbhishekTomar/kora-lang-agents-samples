@@ -1,0 +1,48 @@
+use fs
+
+type TeamPlan:
+    assignments: list[str]
+    synthesis: str
+    unresolved: list[str]
+
+agent evidence_worker(task: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    answer: str = analyze(task, "Extract claims and the evidence needed to support them.", model="gpt") else (why, kind):
+        return f"evidence worker {kind}: {why}"
+    return answer
+
+agent risk_worker(task: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    answer: str = analyze(task, "Find operational, privacy, and delivery risks. State assumptions.", model="gpt") else (why, kind):
+        return f"risk worker {kind}: {why}"
+    return answer
+
+agent supervisor(brief: str) -> str:
+    budget: max_tokens = 6000, max_calls = 4, max_steps = 6
+    with context(max_input_tokens = 12000, reserve_output_tokens = 1800):
+        result: TeamPlan = analyze(
+            brief,
+            "Delegate evidence and risk work when needed. Combine only completed work and list unresolved questions.",
+            model="gpt",
+            tools=[evidence_worker, risk_worker],
+        )
+    match result:
+        case Ok(plan):
+            return f"assignments={plan.assignments}\n{plan.synthesis}\nunresolved={plan.unresolved}"
+        case Uncertain(why):
+            return f"supervisor uncertain: {why}"
+        case Exhausted(meter):
+            return f"supervisor exhausted: {meter}"
+        case Failed(why):
+            return f"supervisor failed: {why}"
+
+def main():
+    match fs.read("agents/092-supervisor-team/data/brief.md"):
+        case Ok(brief):
+            print(supervisor(brief))
+        case Err(why):
+            print(f"cannot read brief: {why}")
+
+test "the supervisor preserves unresolved questions":
+    with mock analyze -> Ok(TeamPlan(["evidence", "risk"], "Pilot is feasible.", ["Who owns rollback?"])):
+        assert "Who owns rollback?" in supervisor("evaluate the pilot")

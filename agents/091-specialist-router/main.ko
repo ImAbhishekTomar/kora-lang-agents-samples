@@ -1,0 +1,49 @@
+type RoutedAnswer:
+    specialist: str @pattern("^(billing|technical|account)$")
+    answer: str
+    next_step: str
+
+agent billing(question: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    answer: str = analyze(question, "Answer only the billing part. Do not invent account facts.", model="gpt") else (why, kind):
+        return f"billing {kind}: {why}"
+    return answer
+
+agent technical(question: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    answer: str = analyze(question, "Give a safe technical diagnosis and one next check.", model="gpt") else (why, kind):
+        return f"technical {kind}: {why}"
+    return answer
+
+agent account(question: str) -> str:
+    budget: max_tokens = 1800, max_calls = 1
+    answer: str = analyze(question, "Answer the account-access question without requesting a password or secret.", model="gpt") else (why, kind):
+        return f"account {kind}: {why}"
+    return answer
+
+agent route(question: str) -> str:
+    budget: max_tokens = 5000, max_calls = 4, max_steps = 5
+    result: RoutedAnswer = analyze(
+        question,
+        "Route to exactly one specialist tool when useful, then return the specialist name, grounded answer, and next step.",
+        model="gpt",
+        tools=[billing, technical, account],
+    )
+    match result:
+        case Ok(value):
+            return f"{value.specialist}: {value.answer} | next: {value.next_step}"
+        case Uncertain(why):
+            return f"needs manual routing: {why}"
+        case Exhausted(meter):
+            return f"routing exhausted: {meter}"
+        case Failed(why):
+            return f"routing failed: {why}"
+
+def main():
+    print(route(input("Describe the request: ")))
+
+test "the router returns a typed specialist answer":
+    with mock analyze -> Ok(RoutedAnswer("technical", "Check the deployment health endpoint.", "attach the failing request id")):
+        answer = route("The API returns 503")
+        assert "technical" in answer
+        assert "request id" in answer

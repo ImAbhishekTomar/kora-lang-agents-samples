@@ -1,0 +1,49 @@
+use notes
+
+type Review:
+    summary: str @description("Factual, concise result")
+    decision: str @description("approve, review, reject, or escalate")
+    evidence: list[str] @description("Short source-grounded evidence items")
+
+TASK = "gathers missing environment/repro details. Use only the supplied source, cite evidence, and say what is missing."
+
+agent investigate(source: str) -> str:
+    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+
+    with context(max_input_tokens = 8_000, reserve_output_tokens = 800):
+        result: Review = analyze(source, TASK, model="gpt")
+    match result:
+        case Ok(review):
+            return f"{review.decision}: {review.summary}"
+        case Uncertain(reason):
+            return f"uncertain: {reason}"
+        case Exhausted(meter):
+            return f"exhausted: {meter}"
+        case Failed(reason):
+            return f"failed: {reason}"
+
+def load_input() -> str:
+    return ask_human(
+        "Describe the bug in one line.",
+        "Include the operating system, exact action, observed result, and when it started.",
+    )
+
+def main():
+    source = load_input()
+    output = investigate(source)
+    notes.write("last_brief", output)
+    decision = ask_human("Are these reproduction details complete?", output)
+    print(f"human response: {decision}")
+
+test "mocked model result is rendered deterministically":
+    with mock analyze -> Ok(Review("fixture-backed result", "review", ["synthetic source"])):
+        output = investigate("synthetic input")
+        assert output == "review: fixture-backed result", f"got: {output}"
+
+test "all non-success outcomes remain values":
+    with mock analyze -> Uncertain("needs evidence"):
+        assert investigate("x") == "uncertain: needs evidence"
+    with mock analyze -> Exhausted("tokens"):
+        assert investigate("x") == "exhausted: tokens"
+    with mock analyze -> Failed("provider unavailable"):
+        assert investigate("x") == "failed: provider unavailable"

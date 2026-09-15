@@ -1,0 +1,24 @@
+# The light vision model: what this sample runs by default.
+#
+# Two things Ollama's defaults get wrong for this job. The context: Kora sends
+# every page of one invoice in a single call and does not set `num_ctx`, so the
+# default truncates a multi-page document -- and `moondream`, at 2048 tokens,
+# cannot hold even one page. 16384 is sized from the dataset: a page of this
+# invoice set costs roughly 3000 tokens, and the longest is four pages, so
+# 8192 refuses the two longest documents outright. And the temperature: an extraction should give the
+# same answer twice.
+#
+# 3B, so two of these run side by side on a laptop without pushing the machine
+# into swap. `vision-extract-agent/Modelfile.7b` is the same recipe on the 7B
+# weights: more accurate, one at a time.
+#
+#   ollama pull qwen2.5vl:3b
+#   ollama create kora-invoice-vision -f vision-extract-agent/Modelfile
+#
+# `kora.toml` then names it with the full model entry:
+# vision = { name = "kora-invoice-vision", endpoint = "http://localhost:11434", api = "ollama" }.
+
+FROM qwen2.5vl:3b
+
+PARAMETER num_ctx 16384
+PARAMETER temperature 0
