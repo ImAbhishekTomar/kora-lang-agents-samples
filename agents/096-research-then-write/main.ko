@@ -22,11 +22,13 @@ tool search_papers(topic: str) -> str:
             return f"Crossref unavailable: {why}"
 
 agent research(question: str) -> str:
-    budget: max_tokens = 7000, max_calls = 4, max_steps = 6, max_seconds = 60
+    # Each tool round costs a call. Four leaves no call to answer with once
+    # the model searches more than twice.
+    budget: max_tokens = 7000, max_calls = 6, max_steps = 8, max_seconds = 60
     with context(max_input_tokens = 18000, reserve_output_tokens = 2200):
         result: ResearchAnswer = analyze(
             question,
-            "Use the public metadata tools before answering. Cite returned URLs or identifiers, never invented sources, and state caveats.",
+            "Search at most once with each tool, then answer from what they return. Cite returned URLs or identifiers, never invented sources, and state caveats.",
             model="gpt",
             tools=[search_books, search_papers],
         ) on tool_call(name, args):

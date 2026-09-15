@@ -13,7 +13,9 @@ tool measure_source(text: str) -> int:
     return len(text)
 
 agent investigate(source: str) -> str:
-    budget: max_tokens = 2_000, max_calls = 2, max_steps = 4
+    # A tool round costs a call: one to request the tool, one to read its
+    # result, and one to answer. Two exhausts the budget mid-loop.
+    budget: max_tokens = 2_000, max_calls = 3, max_steps = 4
 
     result: Review = analyze(source, TASK, model="gpt", tools=[measure_source])
     match result:
